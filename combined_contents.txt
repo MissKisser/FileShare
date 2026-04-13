@@ -1,0 +1,1137 @@
+=== ./src/handlers.php ===
+<?php
+if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
+
+function handleRequest() {
+    $data = loadData();
+    
+    // 处理文件上传
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['files'])) {
+        handleFileUpload($data);
+        return;
+    }
+    
+    // 处理文本保存
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['text'])) {
+        handleTextSave($data);
+        return;
+    }
+    
+    // 处理删除
+    if (isset($_GET['delete'])) {
+        handleDelete($data);
+        return;
+    }
+    
+    // 处理下载
+    if (isset($_GET['download'])) {
+        handleDownload($data);
+        return;
+    }
+}
+
+// 获取真实IP地址
+function getRealIP() {
+    if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
+        return $_SERVER['HTTP_CLIENT_IP'];
+    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+        return trim($ips[0]);
+    } elseif (!empty($_SERVER['HTTP_X_REAL_IP'])) {
+        return $_SERVER['HTTP_X_REAL_IP'];
+    } else {
+        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    }
+}
+
+// 记录上传日志
+function logUpload($filename, $filesize, $duration) {
+    $logFile = STORAGE_DIR . 'upload_log.json';
+    
+    // 读取现有日志
+    $logs = [];
+    if (file_exists($logFile)) {
+        $content = file_get_contents($logFile);
+        $logs = json_decode($content, true) ?: [];
+    }
+    
+    // 添加新日志
+    $logs[] = [
+        'ip' => getRealIP(),
+        'filename' => $filename,
+        'filesize' => $filesize,
+        'upload_time' => time(),
+        'duration' => $duration,
+        'expire_time' => $duration === 0 ? 0 : (time() + $duration),
+        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
+    ];
+    
+    // 只保留最近500条记录
+    if (count($logs) > 500) {
+        $logs = array_slice($logs, -500);
+    }
+    
+    // 保存日志
+    file_put_contents($logFile, json_encode($logs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+// 获取上传日志
+function getUploadLogs($limit = 50) {
+    $logFile = STORAGE_DIR . 'upload_log.json';
+    
+    if (!file_exists($logFile)) {
+        return [];
+    }
+    
+    $content = file_get_contents($logFile);
+    $logs = json_decode($content, true) ?: [];
+    
+    // 返回最新的N条记录
+    return array_slice(array_reverse($logs), 0, $limit);
+}
+
+// 处理文件上传
+function handleFileUpload(&$data) {
+    header('Content-Type: application/json; charset=utf-8');
+    
+    try {
+        $duration = intval($_POST['duration'] ?? 600);
+        $files = $_FILES['files'];
+        $uploadCount = 0;
+        $errors = [];
+        
+        $fileCount = count($files['name']);
+        
+        for ($i = 0; $i < $fileCount; $i++) {
+            if ($files['error'][$i] === UPLOAD_ERR_OK) {
+                $originalName = $files['name'][$i];
+                $filename = time() . '_' . uniqid() . '_' . basename($originalName);
+                $filepath = UPLOAD_DIR . $filename;
+                
+                if (!is_dir(UPLOAD_DIR)) {
+                    mkdir(UPLOAD_DIR, 0755, true);
+                }
+                
+                if (move_uploaded_file($files['tmp_name'][$i], $filepath)) {
+                    $expire = $duration === 0 ? 0 : time() + $duration;
+                    $data[] = [
+                        'type' => 'file',
+                        'name' => $originalName,
+                        'path' => $filepath,
+                        'size' => $files['size'][$i],
+                        'time' => time(),
+                        'expire' => $expire,
+                        'ip' => getRealIP() // ⚠️ 添加IP记录
+                    ];
+                    
+                    // ⚠️ 记录上传日志
+                    logUpload($originalName, $files['size'][$i], $duration);
+                    
+                    $uploadCount++;
+                } else {
+                    $errors[] = "文件 {$originalName} 移动失败";
+                }
+            } else {
+                $errors[] = "文件 {$files['name'][$i]} 上传错误（代码：{$files['error'][$i]}）";
+            }
+        }
+        
+        if ($uploadCount > 0) {
+            saveData($data);
+        }
+        
+        echo json_encode([
+            'success' => $uploadCount > 0,
+            'message' => $uploadCount > 0 ? "成功上传 {$uploadCount} 个文件" : '上传失败',
+            'uploaded' => $uploadCount,
+            'errors' => $errors
+        ], JSON_UNESCAPED_UNICODE);
+        
+    } catch (Exception $e) {
+        echo json_encode([
+            'success' => false,
+            'message' => '上传异常：' . $e->getMessage()
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    
+    exit;
+}
+
+// 处理文本保存
+function handleTextSave(&$data) {
+    $text = $_POST['text'] ?? '';
+    if (!empty(trim($text))) {
+        $data[] = [
+            'type' => 'text',
+            'content' => $text,
+            'time' => time(),
+            'expire' => time() + 600,
+            'ip' => getRealIP() // ⚠️ 添加IP记录
+        ];
+        saveData($data);
+        
+        // ⚠️ 记录文本保存日志
+        logUpload('文本内容 (' . mb_substr($text, 0, 20) . '...)', strlen($text), 600);
+        
+        $_SESSION['message'] = '文本保存成功！';
+    }
+    
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// 处理删除
+function handleDelete(&$data) {
+    $index = intval($_GET['delete']);
+    if (isset($data[$index])) {
+        if ($data[$index]['type'] === 'file' && file_exists($data[$index]['path'])) {
+            @unlink($data[$index]['path']);
+        }
+        unset($data[$index]);
+        $data = array_values($data);
+        saveData($data);
+        $_SESSION['message'] = '删除成功！';
+    }
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// 处理下载
+function handleDownload(&$data) {
+    $index = intval($_GET['download']);
+    if (isset($data[$index]) && $data[$index]['type'] === 'file') {
+        $file = $data[$index];
+        if (file_exists($file['path'])) {
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="' . basename($file['name']) . '"');
+            header('Content-Length: ' . filesize($file['path']));
+            header('Cache-Control: must-revalidate');
+            header('Pragma: public');
+            readfile($file['path']);
+            exit;
+        }
+    }
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+=== ./src/config.php ===
+<?php
+if (!defined('ACCESS_ALLOWED')) {
+    define('ACCESS_ALLOWED', true);
+}
+
+// 目录配置
+define('ROOT_DIR', dirname(__DIR__));
+define('PUBLIC_DIR', ROOT_DIR);
+define('UPLOAD_DIR', PUBLIC_DIR . '/uploads/');
+define('STORAGE_DIR', PUBLIC_DIR . '/storage/');
+define('DATA_FILE', STORAGE_DIR . 'data.json');
+
+// 创建必要目录
+$dirs = [UPLOAD_DIR, STORAGE_DIR];
+foreach ($dirs as $dir) {
+    if (!file_exists($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+}
+
+// PHP 配置
+@ini_set('upload_max_filesize', '5000M');
+@ini_set('post_max_size', '5000M');
+@ini_set('max_execution_time', '6000');
+@ini_set('memory_limit', '512M');
+@ini_set('display_errors', '0');
+@ini_set('log_errors', '1');
+
+// 错误处理
+error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
+
+=== ./src/functions.php ===
+<?php
+if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
+
+// 读取数据
+function loadData() {
+    if (file_exists(DATA_FILE)) {
+        $content = file_get_contents(DATA_FILE);
+        return json_decode($content, true) ?: [];
+    }
+    return [];
+}
+
+// 保存数据
+function saveData($data) {
+    file_put_contents(DATA_FILE, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+// 清理过期项目
+function cleanExpired(&$data) {
+    $now = time();
+    foreach ($data as $key => $item) {
+        if ($item['expire'] > 0 && $item['expire'] < $now) {
+            if ($item['type'] === 'file' && file_exists($item['path'])) {
+                unlink($item['path']);
+            }
+            unset($data[$key]);
+        }
+    }
+    $data = array_values($data);
+    saveData($data);
+}
+
+// 格式化文件大小
+function formatSize($bytes) {
+    $units = ['B', 'KB', 'MB', 'GB'];
+    $i = 0;
+    while ($bytes >= 1024 && $i < 3) {
+        $bytes /= 1024;
+        $i++;
+    }
+    return round($bytes, 2) . ' ' . $units[$i];
+}
+
+// 格式化时间
+function formatExpire($expire) {
+    if ($expire === 0) return '永久';
+    $diff = $expire - time();
+    if ($diff < 0) return '已过期';
+    if ($diff < 3600) return floor($diff / 60) . '分钟';
+    if ($diff < 86400) return floor($diff / 3600) . '小时';
+    return floor($diff / 86400) . '天';
+}
+
+// ⚠️ 新增：格式化持续时间
+function formatDuration($seconds) {
+    if ($seconds === 0) return '永久';
+    if ($seconds < 3600) return ($seconds / 60) . '分钟';
+    if ($seconds < 86400) return ($seconds / 3600) . '小时';
+    return ($seconds / 86400) . '天';
+}
+
+// ⚠️ 新增：隐藏部分IP地址（隐私保护）
+function maskIP($ip) {
+    $parts = explode('.', $ip);
+    if (count($parts) === 4) {
+        return $parts[0] . '.' . $parts[1] . '.***.***';
+    }
+    return $ip;
+}
+
+=== ./templates/main.php ===
+<?php if (!defined('ACCESS_ALLOWED')) exit('Access Denied'); ?>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件上传与文本存储系统</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo time(); ?>">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📦 文件上传与文本存储系统</h1>
+            <p>简单、快速、安全的临时文件和文本存储</p>
+        </div>
+        
+        <div class="content">
+            <?php if (isset($message)): ?>
+                <div class="message"><?php echo htmlspecialchars($message); ?></div>
+            <?php endif; ?>
+            
+            <!-- 文件上传 -->
+            <div class="section">
+                <h2>文件上传</h2>
+                <form id="uploadForm" method="POST" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>选择文件（可多选）</label>
+                        <input type="file" name="files[]" id="fileInput" multiple required>
+                    </div>
+                    <div class="form-group">
+                        <label>保存时长</label>
+                        <select name="duration">
+                            <option value="600">10分钟</option>
+                            <option value="3600">1小时</option>
+                            <option value="86400">1天</option>
+                            <option value="0">永久</option>
+                        </select>
+                    </div>
+                    
+                    <div id="progressContainer" style="display: none; margin-top: 20px;">
+                        <div style="background: #f0f0f0; border-radius: 10px; overflow: hidden; height: 35px; position: relative;">
+                            <div id="progressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4CAF50, #45a049); transition: width 0.3s ease;"></div>
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; color: #333; font-size: 14px; z-index: 1;">
+                                <span id="progressText">0%</span>
+                            </div>
+                        </div>
+                        <div id="statusText" style="text-align: center; margin-top: 12px; color: #888; font-size: 13px;">准备上传...</div>
+                    </div>
+                    
+                    <button type="submit" id="uploadBtn">上传文件</button>
+                </form>
+            </div>
+            
+            <!-- 文本保存 -->
+            <div class="section">
+                <h2>剪贴板</h2>
+                <form method="POST">
+                    <div class="form-group">
+                        <label>文本内容（10分钟后自动删除）</label>
+                        <textarea name="text" placeholder="在此输入或粘贴文本内容..." required></textarea>
+                    </div>
+                    <button type="submit">保存文本</button>
+                </form>
+            </div>
+            
+            <!-- 文件列表 -->
+            <div class="section">
+                <h2>📋 文件与文本列表</h2>
+                <div class="list">
+                    <?php if (empty($data)): ?>
+                        <div class="empty">暂无数据</div>
+                    <?php else: ?>
+                        <?php foreach ($data as $index => $item): ?>
+                            <div class="item">
+                                <div class="item-info">
+                                    <div class="item-name">
+                                        <?php if ($item['type'] === 'file'): ?>
+                                            📄 <?php echo htmlspecialchars($item['name']); ?>
+                                        <?php else: ?>
+                                            📝 文本内容
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="item-meta">
+                                        <?php if ($item['type'] === 'file'): ?>
+                                            大小: <?php echo formatSize($item['size']); ?> | 
+                                        <?php endif; ?>
+                                        上传时间: <?php echo date('Y-m-d H:i:s', $item['time']); ?> | 
+                                        剩余时间: <?php echo formatExpire($item['expire']); ?>
+                                        <?php if (isset($item['ip'])): ?>
+                                            | 上传IP: <?php echo htmlspecialchars(maskIP($item['ip'])); ?>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php if ($item['type'] === 'text'): ?>
+                                        <div class="text-preview">
+                                            <?php echo htmlspecialchars(mb_substr($item['content'], 0, 200)); ?>
+                                            <?php if (mb_strlen($item['content']) > 200) echo '...'; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="item-actions">
+                                    <?php if ($item['type'] === 'file'): ?>
+                                        <a href="?download=<?php echo $index; ?>" class="btn-small">下载</a>
+                                    <?php endif; ?>
+                                    <a href="?delete=<?php echo $index; ?>" class="btn-small btn-delete" 
+                                       onclick="return confirm('确定要删除吗？')">删除</a>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- ⚠️ 新增：上传日志 -->
+            <div class="section">
+                <h2>📊 上传日志（最近50条）</h2>
+                <div class="log-container">
+                    <?php if (empty($uploadLogs)): ?>
+                        <div class="empty">暂无上传记录</div>
+                    <?php else: ?>
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>上传时间</th>
+                                    <th>文件名</th>
+                                    <th>文件大小</th>
+                                    <th>上传IP</th>
+                                    <th>保存时长</th>
+                                    <th>过期时间</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($uploadLogs as $log): ?>
+                                    <tr>
+                                        <td><?php echo date('Y-m-d H:i:s', $log['upload_time']); ?></td>
+                                        <td class="log-filename"><?php echo htmlspecialchars($log['filename']); ?></td>
+                                        <td><?php echo formatSize($log['filesize']); ?></td>
+                                        <td><?php echo htmlspecialchars(maskIP($log['ip'])); ?></td>
+                                        <td><?php echo formatDuration($log['duration']); ?></td>
+                                        <td>
+                                            <?php 
+                                            if ($log['expire_time'] === 0) {
+                                                echo '永久';
+                                            } else {
+                                                echo date('Y-m-d H:i:s', $log['expire_time']);
+                                            }
+                                            ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="assets/js/upload.js?v=<?php echo time(); ?>"></script>
+</body>
+</html>
+
+=== ./assets/css/style.css ===
+* { 
+   margin: 0; 
+   padding: 0; 
+   box-sizing: border-box; 
+}
+
+body {
+   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+   min-height: 100vh;
+   padding: 20px;
+}
+
+.container {
+   max-width: 1000px;
+   margin: 0 auto;
+   background: white;
+   border-radius: 12px;
+   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+   overflow: hidden;
+}
+
+.header {
+   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+   color: white;
+   padding: 30px;
+   text-align: center;
+}
+
+.header h1 { 
+   font-size: 28px; 
+   margin-bottom: 5px; 
+}
+
+.header p { 
+   opacity: 0.9; 
+   font-size: 14px; 
+}
+
+.content { 
+   padding: 30px; 
+}
+
+.section {
+   background: #f8f9fa;
+   border-radius: 8px;
+   padding: 25px;
+   margin-bottom: 25px;
+}
+
+.section h2 {
+   color: #667eea;
+   margin-bottom: 20px;
+   font-size: 20px;
+   display: flex;
+   align-items: center;
+}
+
+.section h2::before {
+   content: '📁';
+   margin-right: 10px;
+   font-size: 24px;
+}
+
+.form-group { 
+   margin-bottom: 15px; 
+}
+
+label {
+   display: block;
+   margin-bottom: 8px;
+   color: #333;
+   font-weight: 500;
+}
+
+input[type="file"], 
+select, 
+textarea {
+   width: 100%;
+   padding: 12px;
+   border: 2px solid #e0e0e0;
+   border-radius: 6px;
+   font-size: 14px;
+   transition: border 0.3s;
+}
+
+input[type="file"]:focus, 
+select:focus, 
+textarea:focus {
+   outline: none;
+   border-color: #667eea;
+}
+
+textarea {
+   resize: vertical;
+   min-height: 100px;
+   font-family: inherit;
+}
+
+button {
+   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+   color: white;
+   border: none;
+   padding: 12px 30px;
+   border-radius: 6px;
+   cursor: pointer;
+   font-size: 15px;
+   font-weight: 500;
+   transition: transform 0.2s, box-shadow 0.2s;
+}
+
+button:hover {
+   transform: translateY(-2px);
+   box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+button:disabled {
+   background: #ccc;
+   cursor: not-allowed;
+   opacity: 0.6;
+   transform: none;
+}
+
+.message {
+   background: #d4edda;
+   color: #155724;
+   padding: 12px 20px;
+   border-radius: 6px;
+   margin-bottom: 20px;
+   border-left: 4px solid #28a745;
+}
+
+.list {
+   background: white;
+   border-radius: 8px;
+   overflow: hidden;
+}
+
+.item {
+   padding: 15px 20px;
+   border-bottom: 1px solid #e0e0e0;
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   transition: background 0.2s;
+}
+
+.item:hover { 
+   background: #f8f9fa; 
+}
+
+.item:last-child { 
+   border-bottom: none; 
+}
+
+.item-info {
+   flex: 1;
+   min-width: 0;
+}
+
+.item-name {
+   font-weight: 500;
+   color: #333;
+   margin-bottom: 5px;
+   word-break: break-all;
+}
+
+.item-meta {
+   font-size: 13px;
+   color: #666;
+}
+
+.item-actions {
+   display: flex;
+   gap: 8px;
+   margin-left: 15px;
+}
+
+.btn-small {
+   padding: 6px 12px;
+   font-size: 13px;
+   text-decoration: none;
+   background: #667eea;
+   color: white;
+   border-radius: 4px;
+   transition: background 0.2s;
+}
+
+.btn-small:hover { 
+   background: #5568d3; 
+}
+
+.btn-delete { 
+   background: #dc3545; 
+}
+
+.btn-delete:hover { 
+   background: #c82333; 
+}
+
+.empty {
+   text-align: center;
+   color: #999;
+   padding: 40px;
+   font-size: 15px;
+}
+
+.text-preview {
+   background: #f8f9fa;
+   padding: 10px;
+   border-radius: 4px;
+   margin-top: 8px;
+   font-family: monospace;
+   font-size: 13px;
+   max-height: 100px;
+   overflow: hidden;
+   color: #555;
+}
+
+/* 文件选择提示 */
+#fileInfo {
+   margin-top: 10px;
+   padding: 12px 15px;
+   background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+   border-radius: 6px;
+   color: #2e7d32;
+   font-size: 13px;
+   border-left: 4px solid #4CAF50;
+   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+   animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+   from {
+       opacity: 0;
+       transform: translateY(-10px);
+   }
+   to {
+       opacity: 1;
+       transform: translateY(0);
+   }
+}
+
+/* 进度条容器 */
+#progressContainer {
+   margin-top: 20px;
+   padding: 20px;
+   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+   border-radius: 10px;
+   border: 1px solid #ddd;
+   box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+#progressBarWrapper {
+   background: #f0f0f0;
+   border-radius: 10px;
+   overflow: hidden;
+   height: 35px;
+   position: relative;
+   box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+}
+
+#progressBar {
+   background: linear-gradient(90deg, #4CAF50, #45a049);
+   height: 100%;
+   width: 0%;
+   transition: width 0.3s ease;
+   box-shadow: 0 2px 4px rgba(76, 175, 80, 0.4);
+   border-radius: 10px;
+   position: relative;
+   overflow: hidden;
+}
+
+#progressBar::after {
+   content: '';
+   position: absolute;
+   top: 0;
+   left: 0;
+   bottom: 0;
+   right: 0;
+   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+   animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+   0% { transform: translateX(-100%); }
+   100% { transform: translateX(100%); }
+}
+
+#progressText {
+   margin-top: 8px;
+   font-size: 14px;
+   font-weight: bold;
+   color: #333;
+   text-align: center;
+}
+
+#speedText {
+   font-family: 'Courier New', monospace;
+   font-weight: bold;
+   font-size: 14px;
+   color: #2196F3;
+}
+
+#uploadedSize,
+#totalSize {
+   font-weight: bold;
+}
+
+#statusText {
+   font-style: italic;
+   animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+   0%, 100% { opacity: 1; }
+   50% { opacity: 0.7; }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+   body {
+       padding: 10px;
+   }
+   
+   .container {
+       border-radius: 8px;
+   }
+   
+   .header {
+       padding: 20px;
+   }
+   
+   .header h1 {
+       font-size: 22px;
+   }
+   
+   .content {
+       padding: 15px;
+   }
+   
+   .section {
+       padding: 15px;
+   }
+   
+   .item {
+       flex-direction: column;
+       align-items: flex-start;
+       gap: 10px;
+   }
+   
+   .item-actions {
+       width: 100%;
+       margin-left: 0;
+       justify-content: flex-end;
+   }
+   
+   button {
+       width: 100%;
+   }
+}
+
+/* 上传日志样式 */
+.log-container {
+    background: white;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.log-table thead {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.log-table th {
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.log-table tbody tr {
+    border-bottom: 1px solid #e0e0e0;
+    transition: background 0.2s;
+}
+
+.log-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.log-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.log-table td {
+    padding: 12px 15px;
+    color: #333;
+}
+
+.log-filename {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 响应式表格 */
+@media (max-width: 768px) {
+    .log-table {
+        font-size: 11px;
+    }
+    
+    .log-table th,
+    .log-table td {
+        padding: 8px 10px;
+    }
+    
+    .log-filename {
+        max-width: 150px;
+    }
+}
+
+
+=== ./assets/js/upload.js ===
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadForm = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const statusText = document.getElementById('statusText');
+    const uploadBtn = document.getElementById('uploadBtn');
+
+    let startTime = null;
+    let lastLoaded = 0;
+    let lastTime = null;
+
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        if (bytes < 1024) {
+            return bytes.toFixed(2) + ' B';
+        } else if (bytes < 1024 * 1024) {
+            return (bytes / 1024).toFixed(2) + ' KB';
+        } else if (bytes < 1024 * 1024 * 1024) {
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        } else {
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+    }
+
+    // 格式化时间
+    function formatTimeRemaining(seconds) {
+        if (!isFinite(seconds) || seconds < 0) return '计算中...';
+        if (seconds < 60) {
+            return Math.round(seconds) + ' 秒';
+        } else if (seconds < 3600) {
+            return Math.round(seconds / 60) + ' 分钟';
+        } else {
+            return Math.round(seconds / 3600) + ' 小时';
+        }
+    }
+
+    // 文件选择时显示总大小
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            const files = this.files;
+            if (files.length > 0) {
+                let totalBytes = 0;
+                
+                for (let i = 0; i < files.length; i++) {
+                    totalBytes += files[i].size;
+                }
+                
+                const sizeText = formatFileSize(totalBytes);
+                console.log(`✅ 已选择 ${files.length} 个文件，总大小：${sizeText}`);
+                
+                // 显示在按钮下方 - 使用安全的方式
+                let fileInfo = document.getElementById('fileInfo');
+                if (!fileInfo && uploadBtn && uploadBtn.parentNode) {
+                    fileInfo = document.createElement('div');
+                    fileInfo.id = 'fileInfo';
+                    fileInfo.style.cssText = 'margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 5px; color: #2e7d32; font-size: 13px;';
+                    uploadBtn.parentNode.insertBefore(fileInfo, uploadBtn.nextSibling);
+                }
+                if (fileInfo) {
+                    fileInfo.textContent = `📁 已选择 ${files.length} 个文件，总大小：${sizeText}`;
+                }
+            }
+        });
+    }
+
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            if (!fileInput || fileInput.files.length === 0) {
+                alert('请先选择文件！');
+                return;
+            }
+
+            const files = fileInput.files;
+
+            const formData = new FormData(uploadForm);
+            const xhr = new XMLHttpRequest();
+
+            // 重置变量
+            startTime = Date.now();
+            lastTime = startTime;
+            lastLoaded = 0;
+
+            // 显示进度条
+            if (progressContainer) progressContainer.style.display = 'block';
+            if (uploadBtn) uploadBtn.disabled = true;
+            if (progressBar) progressBar.style.width = '0%';
+            if (progressText) progressText.textContent = '0%';
+            if (statusText) {
+                statusText.textContent = '正在连接服务器...';
+                statusText.style.color = '#2196F3';
+            }
+
+            // 上传进度监听
+            xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = (e.loaded / e.total) * 100;
+                    
+                    if (progressBar) progressBar.style.width = percentComplete.toFixed(1) + '%';
+                    if (progressText) progressText.textContent = Math.round(percentComplete) + '%';
+
+                    // 计算剩余时间
+                    const currentTime = Date.now();
+                    const timeDiff = (currentTime - lastTime) / 1000;
+                    
+                    if (timeDiff >= 0.2 && statusText) {
+                        const bytesDiff = e.loaded - lastLoaded;
+                        const currentSpeed = bytesDiff / timeDiff;
+
+                        if (currentSpeed > 0 && percentComplete < 100) {
+                            const remainingBytes = e.total - e.loaded;
+                            const timeRemaining = remainingBytes / currentSpeed;
+                            statusText.textContent = '预计剩余：' + formatTimeRemaining(timeRemaining);
+                        } else {
+                            statusText.textContent = '正在上传...';
+                        }
+
+                        lastLoaded = e.loaded;
+                        lastTime = currentTime;
+                    }
+                }
+            });
+
+            // 上传开始
+            xhr.upload.addEventListener('loadstart', function() {
+                if (statusText) statusText.textContent = '开始上传...';
+            });
+
+            // 上传完成
+            xhr.addEventListener('load', function() {
+                if (xhr.status === 200) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.success) {
+                            if (progressBar) progressBar.style.width = '100%';
+                            if (progressText) progressText.textContent = '100%';
+                            if (statusText) {
+                                statusText.textContent = '✅ 上传成功！正在刷新...';
+                                statusText.style.color = '#4CAF50';
+                            }
+                            
+                            setTimeout(() => window.location.reload(), 1500);
+                        } else {
+                            alert('❌ 上传失败：' + (response.message || '未知错误'));
+                            resetUploadUI();
+                        }
+                    } catch (error) {
+                        console.error('解析响应失败：', error);
+                        alert('❌ 服务器响应异常');
+                        resetUploadUI();
+                    }
+                } else {
+                    alert('❌ 上传失败，HTTP 状态码：' + xhr.status);
+                    resetUploadUI();
+                }
+            });
+
+            // 上传错误
+            xhr.addEventListener('error', function() {
+                alert('❌ 网络错误，请检查连接后重试！');
+                resetUploadUI();
+            });
+
+            // 上传中止
+            xhr.addEventListener('abort', function() {
+                alert('⚠️ 上传已取消！');
+                resetUploadUI();
+            });
+
+            // 超时设置
+            xhr.timeout = 6000000;
+            xhr.addEventListener('timeout', function() {
+                alert('❌ 上传超时，请检查网络或尝试上传更小的文件！');
+                resetUploadUI();
+            });
+
+            // 重置 UI
+            function resetUploadUI() {
+                if (progressContainer) progressContainer.style.display = 'none';
+                if (uploadBtn) uploadBtn.disabled = false;
+                if (progressBar) progressBar.style.width = '0%';
+                if (progressText) progressText.textContent = '0%';
+                if (statusText) {
+                    statusText.textContent = '准备上传...';
+                    statusText.style.color = '#888';
+                }
+            }
+
+            // 发送请求
+            xhr.open('POST', '', true);
+            xhr.send(formData);
+        });
+    }
+});
+
+=== ./phpinfo.php ===
+<?php
+phpinfo();
+
+=== ./index.php ===
+<?php
+session_start();
+
+require_once __DIR__ . '/src/config.php';
+require_once __DIR__ . '/src/functions.php';
+require_once __DIR__ . '/src/handlers.php';
+
+handleRequest();
+
+$data = loadData();
+cleanExpired($data);
+
+$message = $_SESSION['message'] ?? null;
+unset($_SESSION['message']);
+
+// ⚠️ 获取上传日志
+$uploadLogs = getUploadLogs(50); // 获取最近10条日志
+
+require_once __DIR__ . '/templates/main.php';
+

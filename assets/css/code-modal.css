@@ -1,0 +1,32 @@
+/* 代码查看模态弹窗样式 重制版 (Modern Minimal)
+ * 作者：Hackerdallas */
+
+.code-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(4px);
+    z-index: 9999; visibility: hidden; display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: all 0.3s ease;
+}
+.code-modal-overlay.active { visibility: visible; opacity: 1; }
+.code-modal {
+    position: relative; width: 90%; max-width: 800px; max-height: 85vh;
+    background: var(--bg-surface); border-radius: var(--radius-md);
+    border: 1px solid var(--border-color); box-shadow: var(--shadow-lg);
+    overflow: hidden; transform: scale(0.95); transition: transform 0.3s ease;
+}
+.code-modal-overlay.active .code-modal { transform: scale(1); }
+.code-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; background: rgba(0,0,0,0.1); border-bottom: 1px solid var(--border-color);
+}
+.code-modal-title { color: var(--text-main); font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.code-modal-actions { display: flex; gap: 12px; }
+.code-modal-btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: 0.2s; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px; }
+.code-modal-btn-copy { background: var(--bg-base); color: var(--text-main); }
+.code-modal-btn-copy:hover { background: var(--bg-surface-hover); }
+.code-modal-btn-copy.copied { background: var(--success); color: white; border-color: var(--success); }
+.code-modal-btn-close { background: transparent; color: var(--text-muted); }
+.code-modal-btn-close:hover { background: rgba(255,255,255,0.05); color: var(--text-main); }
+.code-modal-body { padding: 0; max-height: calc(85vh - 70px); overflow: auto; background: var(--bg-base); }
+.code-modal-body pre { margin: 0; padding: 24px; background: transparent !important; }
+.code-modal-body code { font-family: 'Fira Code', 'Menlo', 'Monaco', 'Courier New', monospace !important; font-size: 13px; line-height: 1.6; }

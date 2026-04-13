@@ -1,0 +1,35 @@
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志
+*.log
+npm-debug.log*
+
+# 依赖
+node_modules/
+
+# 临时文件
+*.bak
+*.tmp
+*.temp
+
+# 备份
+storage.bak/
+uploads.bak/
+
+# Playwright
+.playwright-mcp/
+
+# Claude
+.claude/
+
+# 文档（可选取消注释）
+# docs/
+# screenshots/

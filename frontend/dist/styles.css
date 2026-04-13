@@ -1,0 +1,112 @@
+/* 文件上传与文本存储系统 - 精简版
+ * 作者：Hackerdallas */
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700&family=Open+Sans&display=swap');
+
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:"Open Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5;color:#212529;background:#0a0a0f;min-height:100vh;padding:20px}
+
+h1,h2,h3,h4,h5,h6{margin:0 0 .5rem;font-family:"Montserrat",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-weight:700;line-height:1.2}
+h1{font-size:28px}
+h2{font-size:20px}
+p{margin:0 0 1rem}
+a{color:#0d6efd;text-decoration:none}
+a:hover{text-decoration:underline}
+small{font-size:.875em}
+
+.container{max-width:1200px;margin:0 auto;background:#121218;border-radius:24px;border:1px solid rgba(255,255,255,.08);overflow:hidden}
+
+.header{background:linear-gradient(135deg,rgba(255,107,53,.12) 0%,rgba(168,85,247,.08) 100%);padding:40px 36px;border-bottom:1px solid rgba(255,255,255,.08)}
+.header h1{background:linear-gradient(135deg,#f4f4f5 0%,#ff6b35 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px}
+.header p{color:#a1a1aa;font-size:15px}
+
+.content{padding:32px}
+
+.grid-layout{display:grid;gap:20px;grid-template-columns:1fr}
+@media (min-width:768px){.grid-layout{grid-template-columns:repeat(2,1fr)}}
+
+.grid-card{background:rgba(255,255,255,.03);border-radius:14px;padding:24px;border:1px solid rgba(255,255,255,.08);transition:all .3s}
+.grid-card:hover{border-color:rgba(255,107,53,.5);transform:translateY(-2px)}
+.grid-card h2{color:#f4f4f5;margin-bottom:20px;font-size:16px;display:flex;align-items:center;gap:10px}
+.grid-card-full{grid-column:1/-1}
+.grid-card-cyber{background:rgba(25,22,40,.92);border:1px solid rgba(138,43,226,.55)}
+.grid-card-cyber:hover{border-color:rgba(0,255,255,.85);box-shadow:0 8px 32px rgba(0,0,0,.5),0 0 20px rgba(0,255,255,.25)}
+.grid-card-cyber h2{color:#00ffff;text-shadow:0 0 8px rgba(0,255,255,.4)}
+
+.section{background:rgba(255,255,255,.03);border-radius:14px;padding:28px;margin-bottom:24px;border:1px solid rgba(255,255,255,.08)}
+
+.form-group{margin-bottom:20px}
+label{display:block;margin-bottom:10px;color:#a1a1aa;font-weight:500;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+
+input[type="file"],select,textarea{width:100%;padding:14px 18px;border:2px solid rgba(255,255,255,.08);border-radius:8px;font-size:15px;background:rgba(30,30,42,.8);color:#f4f4f5;transition:all .3s}
+input[type="file"]:hover,select:hover,textarea:hover{border-color:#ff6b35}
+input[type="file"]:focus,select:focus,textarea:focus{outline:none;border-color:#ff6b35;box-shadow:0 0 0 4px rgba(255,107,53,.2)}
+textarea{min-height:160px;resize:vertical;line-height:1.6}
+input[type="file"]::file-selector-button{background:#ff6b35;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;margin-right:14px;font-weight:600;transition:all .3s}
+input[type="file"]::file-selector-button:hover{background:#ff8555}
+
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;padding-right:44px}
+
+button,button[type="submit"],button[type="button"]{background:linear-gradient(135deg,#ff6b35 0%,#ff8555 100%);color:#fff;border:none;padding:16px 36px;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;transition:all .3s}
+button:hover{transform:translateY(-2px);box-shadow:0 10px 30px -5px rgba(255,107,53,.4)}
+button:active{transform:translateY(0)}
+button:disabled{background:#71717a;cursor:not-allowed}
+
+#fileInfo{margin-top:16px;padding:14px 20px;background:rgba(0,212,170,.15);border-radius:8px;color:#00d4aa;font-size:14px;font-weight:500;border:1px solid rgba(0,212,170,.3)}
+
+#progressContainer{margin-top:24px;padding:24px;background:rgba(30,30,42,.8);border-radius:14px;border:1px solid rgba(255,255,255,.08);display:none}
+#progressBar{background:linear-gradient(90deg,#ff6b35,#00d4aa);height:10px;width:0;border-radius:5px;transition:width .3s}
+#progressText{margin-top:14px;font-size:15px;font-weight:600;color:#f4f4f5;text-align:center}
+#statusText{margin-top:8px;font-size:13px;color:#a1a1aa;text-align:center}
+
+.list{background:rgba(255,255,255,.03);border-radius:14px;border:1px solid rgba(255,255,255,.08);overflow:hidden}
+.item{padding:20px 24px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:flex-start;justify-content:space-between;gap:20px;transition:all .3s}
+.item:last-child{border-bottom:none}
+.item:hover{background:rgba(30,30,42,.8)}
+.item-info{flex:1;min-width:0}
+.item-name{font-weight:600;color:#f4f4f5;margin-bottom:8px;font-size:15px}
+.item-meta{font-size:13px;color:#71717a;display:flex;flex-wrap:wrap;gap:12px}
+.item-actions{display:flex;gap:10px;flex-shrink:0}
+
+.btn-small{padding:8px 16px;font-size:13px;border-radius:6px;font-weight:500;transition:all .3s;background:rgba(30,30,42,.8);color:#a1a1aa;border:1px solid rgba(255,255,255,.08);text-decoration:none;display:inline-block}
+.btn-small:hover{background:#ff6b35;color:#fff;border-color:#ff6b35}
+.btn-delete:hover{background:#ef4444;border-color:#ef4444}
+.btn-view:hover{background:#a855f7;border-color:#a855f7}
+.btn-copy:hover{background:#00d4aa;border-color:#00d4aa}
+
+.text-preview,.text-full{background:rgba(30,30,42,.8);padding:14px;border-radius:8px;margin-top:12px;font-size:13px;color:#a1a1aa;border:1px solid rgba(255,255,255,.08)}
+.text-full{max-height:280px;overflow-y:auto}
+
+.empty{text-align:center;color:#71717a;padding:56px 24px;font-size:14px;background:rgba(30,30,42,.8)}
+
+.log-container{background:rgba(255,255,255,.03);border-radius:14px;border:1px solid rgba(255,255,255,.08);overflow-x:auto}
+.log-table{width:100%;border-collapse:collapse;font-size:13px}
+.log-table thead{background:linear-gradient(135deg,#ff6b35 0%,#ff8555 100%)}
+.log-table th{padding:14px 18px;text-align:left;font-weight:600;white-space:nowrap;font-size:12px;text-transform:uppercase}
+.log-table tbody tr{border-bottom:1px solid rgba(255,255,255,.08);transition:all .3s}
+.log-table tbody tr:hover{background:rgba(30,30,42,.8)}
+.log-table td{padding:14px 18px;color:#a1a1aa}
+
+.message{background:linear-gradient(135deg,rgba(34,197,94,.15) 0%,rgba(34,197,94,.05) 100%);color:#22c55e;padding:16px 24px;border-radius:14px;margin-bottom:28px;border:1px solid rgba(34,197,94,.3);font-size:14px;font-weight:500}
+
+@media (max-width:768px){
+    body{padding:12px}
+    .container{border-radius:14px}
+    .header{padding:28px 20px}
+    .header h1{font-size:22px}
+    .content{padding:16px}
+    .grid-layout{grid-template-columns:1fr;gap:16px}
+    .grid-card{padding:18px}
+    .item{flex-direction:column;gap:14px;padding:16px}
+    .item-actions{width:100%;justify-content:flex-end}
+    button[type="submit"]{width:100%}
+    .log-table{font-size:12px}
+    .log-table th,.log-table td{padding:10px 12px}
+}
+
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:#0a0a0f}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:#71717a}
+::selection{background:#ff6b35;color:#fff}

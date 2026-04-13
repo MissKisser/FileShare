@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户信息提交</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+
+        .form-layout {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .form-section {
+            flex: 1;
+            min-width: 400px;
+        }
+
+        .photo-section {
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        td {
+            padding: 15px 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        td:first-child {
+            font-weight: 600;
+            color: #555;
+            width: 120px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 20px;
+        }
+
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .radio-group input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #667eea;
+        }
+
+        .photo-upload {
+            width: 220px;
+            height: 280px;
+            border: 3px dashed #ccc;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f9f9f9;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+
+        .photo-upload:hover {
+            border-color: #667eea;
+            background: #f0f0ff;
+        }
+
+        .photo-upload img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .photo-upload .placeholder {
+            color: #999;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .photo-upload .placeholder svg {
+            width: 50px;
+            height: 50px;
+            margin-bottom: 10px;
+            fill: #ccc;
+        }
+
+        .file-upload-section {
+            margin: 25px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 12px;
+        }
+
+        .file-upload-section label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type="file"] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        .file-input-btn {
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            display: inline-block;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .file-input-btn:hover {
+            background: #5a6fd6;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .submit-section {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 60px;
+            font-size: 18px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+
+        .qr-section {
+            margin-top: 30px;
+            padding: 25px;
+            background: #f9f9f9;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .qr-section h3 {
+            color: #555;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        #qrcode {
+            display: inline-block;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .interests-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .interest-checkbox {
+            display: none;
+        }
+
+        .interest-label {
+            padding: 8px 16px;
+            background: #f0f0f0;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .interest-checkbox:checked + .interest-label {
+            background: #667eea;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .form-layout {
+                flex-direction: column;
+            }
+
+            .photo-section {
+                width: 100%;
+                flex-direction: row;
+                justify-content: center;
+            }
+
+            .form-section {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 用户信息提交</h1>
+
+        <form id="userForm">
+            <div class="form-layout">
+                <!-- 左侧表单区域 -->
+                <div class="form-section">
+                    <table>
+                        <tr>
+                            <td>姓名</td>
+                            <td>
+                                <input type="text" id="name" name="name" placeholder="请输入姓名" required>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>性别</td>
+                            <td>
+                                <div class="radio-group">
+                                    <label>
+                                        <input type="radio" name="gender" value="男" required> 男
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="gender" value="女"> 女
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="gender" value="其他"> 其他
+                                    </label>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>年龄</td>
+                            <td>
+                                <select id="age" name="age" required>
+                                    <option value="">请选择年龄</option>
+                                    <script>
+                                        for (let i = 1; i <= 120; i++) {
+                                            document.write(`<option value="${i}">${i}岁</option>`);
+                                        }
+                                    </script>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>身份证号</td>
+                            <td>
+                                <input type="text" id="idCard" name="idCard" placeholder="请输入 18 位身份证号" 
+                                       pattern="\d{17}[\dXx]" maxlength="18" required>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>兴趣爱好</td>
+                            <td>
+                                <div class="interests-container">
+                                    <input type="checkbox" id="hobby1" class="interest-checkbox" value="阅读">
+                                    <label for="hobby1" class="interest-label">📚 阅读</label>
+
+                                    <input type="checkbox" id="hobby2" class="interest-checkbox" value="音乐">
+                                    <label for="hobby2" class="interest-label">🎵 音乐</label>
+
+                                    <input type="checkbox" id="hobby3" class="interest-checkbox" value="运动">
+                                    <label for="hobby3" class="interest-label">⚽ 运动</label>
+
+                                    <input type="checkbox" id="hobby4" class="interest-checkbox" value="旅行">
+                                    <label for="hobby4" class="interest-label">✈️ 旅行</label>
+
+                                    <input type="checkbox" id="hobby5" class="interest-checkbox" value="摄影">
+                                    <label for="hobby5" class="interest-label">📷 摄影</label>
+
+                                    <input type="checkbox" id="hobby6" class="interest-checkbox" value="游戏">
+                                    <label for="hobby6" class="interest-label">🎮 游戏</label>
+
+                                    <input type="checkbox" id="hobby7" class="interest-checkbox" value="烹饪">
+                                    <label for="hobby7" class="interest-label">🍳 烹饪</label>
+
+                                    <input type="checkbox" id="hobby8" class="interest-checkbox" value="绘画">
+                                    <label for="hobby8" class="interest-label">🎨 绘画</label>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <!-- 文件上传区域 -->
+                    <div class="file-upload-section">
+                        <label>📎 附件上传</label>
+                        <div class="file-input-wrapper">
+                            <span class="file-input-btn">选择文件</span>
+                            <input type="file" id="attachment" name="attachment" multiple>
+                        </div>
+                        <div class="file-name" id="fileName">未选择文件</div>
+                    </div>
+                </div>
+
+                <!-- 右侧照片区域 -->
+                <div class="photo-section">
+                    <div class="photo-upload" id="photoUpload">
+                        <div class="placeholder" id="photoPlaceholder">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                            </svg>
+                            <div>点击上传照片</div>
+                            <div style="font-size: 12px; margin-top: 5px;">支持 JPG、PNG 格式</div>
+                        </div>
+                        <img id="photoPreview" style="display: none;">
+                    </div>
+                    <input type="file" id="photoInput" accept="image/*" style="display: none;">
+                </div>
+            </div>
+
+            <!-- 提交按钮 -->
+            <div class="submit-section">
+                <button type="submit" class="submit-btn">✨ 提交信息</button>
+            </div>
+        </form>
+
+        <!-- 二维码区域 -->
+        <div class="qr-section">
+            <h3>📱 实时信息二维码</h3>
+            <div id="qrcode"></div>
+            <p style="margin-top: 15px; color: #999; font-size: 13px;">二维码将实时包含您输入的信息</p>
+        </div>
+    </div>
+
+    <script>
+        // 照片上传处理
+        const photoUpload = document.getElementById('photoUpload');
+        const photoInput = document.getElementById('photoInput');
+        const photoPreview = document.getElementById('photoPreview');
+        const photoPlaceholder = document.getElementById('photoPlaceholder');
+
+        photoUpload.addEventListener('click', () => {
+            photoInput.click();
+        });
+
+        photoInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    photoPreview.src = event.target.result;
+                    photoPreview.style.display = 'block';
+                    photoPlaceholder.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 文件上传显示文件名
+        const attachmentInput = document.getElementById('attachment');
+        const fileNameDisplay = document.getElementById('fileName');
+
+        attachmentInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            if (files.length > 0) {
+                const names = Array.from(files).map(f => f.name).join(', ');
+                fileNameDisplay.textContent = `已选择：${names}`;
+            } else {
+                fileNameDisplay.textContent = '未选择文件';
+            }
+        });
+
+        // 二维码生成
+        let qrCode = null;
+
+        function generateQRCode() {
+            const formData = {
+                姓名：document.getElementById('name').value || '未填写',
+                性别：document.querySelector('input[name="gender"]:checked')?.value || '未选择',
+                年龄：document.getElementById('age').value ? document.getElementById('age').value + '岁' : '未选择',
+                身份证号：document.getElementById('idCard').value || '未填写',
+                兴趣爱好：Array.from(document.querySelectorAll('.interest-checkbox:checked'))
+                    .map(cb => cb.value).join(', ') || '未选择'
+            };
+
+            const qrData = JSON.stringify(formData, null, 2);
+
+            document.getElementById('qrcode').innerHTML = '';
+            qrCode = new QRCode(document.getElementById('qrcode'), {
+                text: qrData,
+                width: 200,
+                height: 200,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+
+        // 实时监听输入变化
+        const inputs = document.querySelectorAll('#name, #age, #idCard, input[name="gender"], .interest-checkbox');
+        inputs.forEach(input => {
+            input.addEventListener('input', generateQRCode);
+            input.addEventListener('change', generateQRCode);
+        });
+
+        // 初始化二维码
+        generateQRCode();
+
+        // 表单提交
+        document.getElementById('userForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const formData = {
+                name: document.getElementById('name').value,
+                gender: document.querySelector('input[name="gender"]:checked')?.value,
+                age: document.getElementById('age').value,
+                idCard: document.getElementById('idCard').value,
+                hobbies: Array.from(document.querySelectorAll('.interest-checkbox:checked'))
+                    .map(cb => cb.value),
+                photo: photoPreview.src !== '' ? '已上传' : '未上传',
+                attachment: attachmentInput.files.length > 0 ? 
+                    Array.from(attachmentInput.files).map(f => f.name) : []
+            };
+
+            console.log('提交的数据:', formData);
+            alert('✅ 信息提交成功！\n\n请查看控制台获取提交的数据。');
+        });
+
+        // 身份证号格式验证
+        document.getElementById('idCard').addEventListener('input', (e) => {
+            const value = e.target.value.toUpperCase();
+            e.target.value = value;
+        });
+    </script>
+</body>
+</html>
