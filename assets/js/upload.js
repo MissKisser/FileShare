@@ -2,12 +2,22 @@
  * 文件上传与拖拽上传功能
  * 作者：Hackerdallas
  */
+
+/**
+ * HTML转义函数，防止XSS攻击
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // ========================================
     // 配置参数
     // ========================================
     const UPLOAD_CONFIG = {
-        maxFileSize: 100 * 1024 * 1024,  // 100MB
+        maxFileSize: 5000 * 1024 * 1024,  // 5GB
         maxFiles: 20,
         allowedTypes: [
             // 图片
@@ -409,7 +419,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         let previewHtml = '';
         if (fileData.preview) {
-            previewHtml = `<img src="${fileData.preview}" alt="${fileData.name}">`;
+            previewHtml = `<img src="${fileData.preview}" alt="${escapeHtml(fileData.name)}">`;
         } else {
             previewHtml = `<span class="file-type-icon">${icon}</span>`;
         }
@@ -423,7 +433,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="selected-file-item" data-file-id="${fileData.id}">
                 <div class="selected-file-preview">${previewHtml}</div>
                 <div class="selected-file-info">
-                    <div class="selected-file-name" title="${fileData.name}">${fileData.name}</div>
+                    <div class="selected-file-name" title="${escapeHtml(fileData.name)}">${escapeHtml(fileData.name)}</div>
                     <div class="selected-file-meta">
                         <span class="selected-file-size">${formatFileSize(fileData.size)}</span>
                         <span class="selected-file-type">${typeName}</span>
@@ -448,7 +458,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (item && fileData.preview) {
             const preview = item.querySelector('.selected-file-preview');
             if (preview) {
-                preview.innerHTML = `<img src="${fileData.preview}" alt="${fileData.name}">`;
+                preview.innerHTML = `<img src="${fileData.preview}" alt="${escapeHtml(fileData.name)}">`;
             }
         }
     }
@@ -554,7 +564,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         let previewHtml = '';
         if (fileData.preview) {
-            previewHtml = `<img src="${fileData.preview}" alt="${fileData.name}">`;
+            previewHtml = `<img src="${fileData.preview}" alt="${escapeHtml(fileData.name)}">`;
         } else {
             previewHtml = `<span class="file-type-icon">${icon}</span>`;
         }
@@ -568,7 +578,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="drag-file-item" data-file-id="${fileData.id}">
                 <div class="file-preview">${previewHtml}</div>
                 <div class="file-info">
-                    <div class="file-name" title="${fileData.name}">${fileData.name}</div>
+                    <div class="file-name" title="${escapeHtml(fileData.name)}">${escapeHtml(fileData.name)}</div>
                     <div class="file-meta">
                         <span class="file-size">${formatFileSize(fileData.size)}</span>
                         <span class="file-type">${typeName}</span>
@@ -593,7 +603,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (item && fileData.preview) {
             const preview = item.querySelector('.file-preview');
             if (preview) {
-                preview.innerHTML = `<img src="${fileData.preview}" alt="${fileData.name}">`;
+                preview.innerHTML = `<img src="${fileData.preview}" alt="${escapeHtml(fileData.name)}">`;
             }
         }
     }
@@ -690,12 +700,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="file-progress-item uploading" data-file-id="${fileData.id}">
                     <div class="file-progress-preview">
                         ${fileData.preview
-                            ? `<img src="${fileData.preview}" alt="${fileData.name}">`
+                            ? `<img src="${fileData.preview}" alt="${escapeHtml(fileData.name)}">`
                             : `<span class="file-type-icon">${getFileTypeIcon(fileData)}</span>`
                         }
                     </div>
                     <div class="file-progress-info">
-                        <div class="file-progress-name">${fileData.name}</div>
+                        <div class="file-progress-name">${escapeHtml(fileData.name)}</div>
                         <div class="file-progress-bar">
                             <div class="file-progress-bar-fill" style="width: 0%"></div>
                         </div>
@@ -1036,13 +1046,30 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         // 重新绑定删除按钮
-        document.querySelectorAll('.btn-delete[data-delete-url]').forEach(button => {
+        document.querySelectorAll('.btn-delete[data-index]').forEach(button => {
             button.onclick = null;
             button.addEventListener('click', function(e) {
                 e.preventDefault();
-                const deleteUrl = this.getAttribute('data-delete-url');
+                const index = this.getAttribute('data-index');
                 showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
-                    window.location.href = deleteUrl;
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = window.location.pathname;
+
+                    const csrfField = document.createElement('input');
+                    csrfField.type = 'hidden';
+                    csrfField.name = 'csrf_token';
+                    csrfField.value = window.csrfToken || document.querySelector('input[name="csrf_token"]')?.value || '';
+                    form.appendChild(csrfField);
+
+                    const deleteField = document.createElement('input');
+                    deleteField.type = 'hidden';
+                    deleteField.name = 'delete';
+                    deleteField.value = index;
+                    form.appendChild(deleteField);
+
+                    document.body.appendChild(form);
+                    form.submit();
                 });
             });
         });
@@ -1310,12 +1337,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 查看按钮事件
     const viewButtons = document.querySelectorAll('.btn-view');
-    console.log('找到查看按钮数量:', viewButtons.length);
     viewButtons.forEach(button => {
         button.addEventListener('click', function() {
-            console.log('查看按钮被点击');
             const content = this.getAttribute('data-content');
-            console.log('内容长度:', content ? content.length : 0);
             if (content) {
                 openCodeModal(content);
             }
@@ -1383,13 +1407,31 @@ document.addEventListener('DOMContentLoaded', function() {
     // ========================================
     // 删除按钮功能
     // ========================================
-    const deleteButtons = document.querySelectorAll('.btn-delete[data-delete-url]');
+    const deleteButtons = document.querySelectorAll('.btn-delete[data-index]');
     deleteButtons.forEach(button => {
         button.addEventListener('click', function(e) {
             e.preventDefault();
-            const deleteUrl = this.getAttribute('data-delete-url');
+            const index = this.getAttribute('data-index');
             showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
-                window.location.href = deleteUrl;
+                // 使用POST方式提交删除请求
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = window.location.pathname;
+
+                const csrfField = document.createElement('input');
+                csrfField.type = 'hidden';
+                csrfField.name = 'csrf_token';
+                csrfField.value = window.csrfToken || document.querySelector('input[name="csrf_token"]')?.value || '';
+                form.appendChild(csrfField);
+
+                const deleteField = document.createElement('input');
+                deleteField.type = 'hidden';
+                deleteField.name = 'delete';
+                deleteField.value = index;
+                form.appendChild(deleteField);
+
+                document.body.appendChild(form);
+                form.submit();
             });
         });
     });

@@ -14,7 +14,7 @@ function loadData() {
 }
 
 function saveData($data) {
-    file_put_contents(DATA_FILE, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    file_put_contents(DATA_FILE, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
 }
 
 function cleanExpired(&$data) {
