@@ -1,0 +1,189 @@
+/* ========================================
+   布局与容器
+   ======================================== */
+
+/* 主内容区 */
+.main-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    min-height: 100vh;
+    padding: 32px;
+}
+
+/* 页面标题 */
+.page-header {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.page-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+}
+
+.page-header p {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+/* 统计卡片 */
+.stats-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    transition: all var(--transition-fast);
+}
+
+.stat-card:hover {
+    box-shadow: var(--card-shadow-hover);
+}
+
+.stat-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+}
+
+.stat-card:nth-child(1) .stat-value { color: var(--accent-blue); }
+.stat-card:nth-child(2) .stat-value { color: var(--accent-green); }
+.stat-card:nth-child(3) .stat-value { color: var(--accent-amber); }
+
+/* 栅格布局 */
+.grid-layout {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+.section-full {
+    grid-column: 1 / -1;
+}
+
+/* 卡片 */
+.grid-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    transition: all var(--transition-fast);
+    animation: slideIn 0.3s ease forwards;
+}
+
+.grid-card:nth-child(1) { animation-delay: 0.05s; }
+.grid-card:nth-child(2) { animation-delay: 0.1s; }
+.grid-card:nth-child(3) { animation-delay: 0.15s; }
+.grid-card:nth-child(4) { animation-delay: 0.2s; }
+
+.grid-card:hover {
+    box-shadow: var(--card-shadow-hover);
+}
+
+.grid-card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    letter-spacing: -0.01em;
+}
+
+.grid-card h2 svg {
+    width: 18px;
+    height: 18px;
+    color: var(--text-muted);
+}
+
+.card-upload {
+    border-left: 3px solid var(--accent-blue);
+}
+
+.card-upload h2 svg { color: var(--accent-blue); }
+
+.card-text {
+    border-left: 3px solid var(--accent-green);
+}
+
+.card-text h2 svg { color: var(--accent-green); }
+
+/* 主题切换按钮 */
+.theme-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 200;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    box-shadow: var(--card-shadow);
+}
+
+.theme-toggle:hover {
+    background: var(--bg-tertiary);
+    transform: scale(1.05);
+}
+
+.theme-toggle svg {
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+    transition: transform var(--transition-normal);
+}
+
+.theme-toggle:hover svg {
+    color: var(--accent-blue);
+}
+
+.theme-toggle .icon-sun { display: none; }
+.theme-toggle .icon-moon { display: block; }
+
+[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+/* 消息提示 */
+.message {
+    background: var(--accent-green-light);
+    color: var(--accent-green);
+    padding: 14px 20px;
+    border-radius: var(--radius-md);
+    margin-bottom: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--accent-green);
+}
+
+.message svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}

@@ -12,51 +12,357 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    // ========================================
-    // 配置参数
-    // ========================================
-    const UPLOAD_CONFIG = {
-        maxFileSize: 5000 * 1024 * 1024,  // 5GB
-        maxFiles: 20,
-        allowedTypes: [
-            // 图片
-            'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/ico',
-            // 视频
-            'video/mp4', 'video/webm', 'video/ogg', 'video/avi', 'video/quicktime',
-            // 音频
-            'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/flac',
-            // 文档
-            'application/pdf', 'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/vnd.ms-excel',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'application/vnd.ms-powerpoint',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            'text/plain', 'text/csv', 'text/html', 'text/css',
-            // 压缩包
-            'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
-            'application/x-tar', 'application/gzip', 'application/x-zip-compressed',
-            // 代码
-            'text/javascript', 'application/javascript', 'application/json', 'text/xml',
-            'application/xml', 'text/x-python', 'text/x-php'
-        ],
-        // 文件类型图标映射
-        typeIcons: {
-            'image': '🖼️',
-            'video': '🎬',
-            'audio': '🎵',
-            'pdf': '📄',
-            'document': '📝',
-            'spreadsheet': '📊',
-            'presentation': '📽️',
-            'archive': '📦',
-            'code': '💻',
-            'text': '📃',
-            'other': '📁'
+/**
+ * 通用复制到剪贴板工具（三层降级，兼容移动端和 HTTP 环境）
+ * 1. 优先 navigator.clipboard.writeText（需 HTTPS + 用户手势）
+ * 2. 降级 document.execCommand('copy') + 临时 textarea（兼容旧浏览器和 HTTP）
+ * 3. 兜底弹窗显示文本 + 自动选中，让用户手动长按复制（移动端终极兜底）
+ */
+async function copyToClipboard(text) {
+    // 第一层：现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return { success: true, method: 'clipboard-api' };
+        } catch (err) {
+            console.warn('Clipboard API 失败，尝试降级方案:', err);
+        }
+    }
+
+    // 第二层：execCommand 兼容方案（兼容 HTTP 和旧浏览器）
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        // 避免滚动到底部
+        textarea.style.position = 'fixed';
+        textarea.style.top = '0';
+        textarea.style.left = '0';
+        textarea.style.width = '1px';
+        textarea.style.height = '1px';
+        textarea.style.padding = '0';
+        textarea.style.border = 'none';
+        textarea.style.outline = 'none';
+        textarea.style.boxShadow = 'none';
+        textarea.style.background = 'transparent';
+        textarea.style.opacity = '0';
+        textarea.setAttribute('readonly', '');
+        textarea.setAttribute('aria-hidden', 'true');
+
+        document.body.appendChild(textarea);
+
+        // 兼容 iOS Safari：必须用 setSelectionRange
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        if (isIOS) {
+            const range = document.createRange();
+            range.selectNodeContents(textarea);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            textarea.setSelectionRange(0, text.length);
+        } else {
+            textarea.select();
+            textarea.setSelectionRange(0, text.length);
+        }
+
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+
+        if (successful) {
+            return { success: true, method: 'exec-command' };
+        }
+    } catch (err) {
+        console.warn('execCommand 复制失败:', err);
+    }
+
+    // 第三层：手动复制兜底弹窗
+    return { success: false, method: 'manual' };
+}
+
+/**
+ * 显示手动复制兜底弹窗（移动端终极方案）
+ * 自动选中 textarea 内容，用户长按即可复制
+ */
+function showManualCopyFallback(text) {
+    // 移除已有弹窗
+    const existing = document.getElementById('manualCopyFallback');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'manualCopyFallback';
+    overlay.className = 'manual-copy-overlay';
+    overlay.innerHTML = `
+        <div class="manual-copy-modal">
+            <div class="manual-copy-header">
+                <div class="manual-copy-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    请手动复制
+                </div>
+                <button type="button" class="manual-copy-close" aria-label="关闭">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="manual-copy-body">
+                <p class="manual-copy-hint">长按下方文本框，然后选择"复制"</p>
+                <textarea class="manual-copy-textarea" readonly></textarea>
+            </div>
+            <div class="manual-copy-footer">
+                <button type="button" class="manual-copy-select-all">全选并复制</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const textarea = overlay.querySelector('.manual-copy-textarea');
+    textarea.value = text;
+
+    // 自动选中所有文本（用户长按即可复制）
+    setTimeout(() => {
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, text.length);
+    }, 100);
+
+    // 关闭按钮
+    const closeBtn = overlay.querySelector('.manual-copy-close');
+    const close = () => {
+        overlay.classList.remove('show');
+        setTimeout(() => overlay.remove(), 200);
+    };
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) close();
+    });
+
+    // 全选并复制按钮
+    const selectAllBtn = overlay.querySelector('.manual-copy-select-all');
+    selectAllBtn.addEventListener('click', async () => {
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, text.length);
+        // 再次尝试复制
+        try {
+            const success = document.execCommand('copy');
+            if (success) {
+                selectAllBtn.textContent = '✓ 已复制';
+                setTimeout(close, 1000);
+            }
+        } catch (err) {
+            // 用户需要手动操作
+        }
+    });
+
+    // ESC 关闭
+    const escHandler = (e) => {
+        if (e.key === 'Escape') {
+            close();
+            document.removeEventListener('keydown', escHandler);
         }
     };
+    document.addEventListener('keydown', escHandler);
 
+    // 显示动画
+    requestAnimationFrame(() => overlay.classList.add('show'));
+}
+
+/**
+ * 显示大文件上传密码输入弹窗
+ * 用户上传超过 200MB 的文件时调用
+ * 返回 Promise，resolve 时通过 { password: '...' } 表示验证通过
+ */
+function showLargeFilePasswordPrompt(fileSize) {
+    return new Promise((resolve) => {
+        // 移除已有弹窗
+        const existing = document.getElementById('largeFilePwdPrompt');
+        if (existing) existing.remove();
+
+        const sizeMB = (fileSize / (1024 * 1024)).toFixed(1);
+        const overlay = document.createElement('div');
+        overlay.id = 'largeFilePwdPrompt';
+        overlay.className = 'manual-copy-overlay';
+        overlay.innerHTML = `
+            <div class="manual-copy-modal" style="max-width: 400px;">
+                <div class="manual-copy-header">
+                    <div class="manual-copy-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        大文件上传验证
+                    </div>
+                </div>
+                <div class="manual-copy-body">
+                    <p class="manual-copy-hint">
+                        您要上传的文件大小为 <strong>${sizeMB} MB</strong>，超过 200MB 限制。<br>
+                        请输入大文件上传密码以继续。
+                    </p>
+                    <input type="password" class="large-file-pwd-input" placeholder="请输入大文件密码" autocomplete="off">
+                    <p class="large-file-pwd-error" style="display: none; color: var(--accent-red); font-size: 12px; margin: 0;">密码错误，请重试</p>
+                </div>
+                <div class="manual-copy-footer">
+                    <button type="button" class="large-file-pwd-cancel" style="background: var(--btn-secondary); color: var(--text-primary); margin-right: 8px;">取消</button>
+                    <button type="button" class="large-file-pwd-confirm">验证并上传</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        const pwdInput = overlay.querySelector('.large-file-pwd-input');
+        const errorEl = overlay.querySelector('.large-file-pwd-error');
+        const cancelBtn = overlay.querySelector('.large-file-pwd-cancel');
+        const confirmBtn = overlay.querySelector('.large-file-pwd-confirm');
+
+        // 客户端做一次基础校验（实际验证由服务端完成，防止被绕过）
+        const submit = async () => {
+            const pwd = pwdInput.value;
+            if (!pwd) {
+                errorEl.textContent = '请输入密码';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = '验证中...';
+
+            try {
+                // 通过 fetch 发送一个预检请求验证密码
+                const fd = new FormData();
+                fd.append('action', 'verify_large_file_password');
+                fd.append('password', pwd);
+                const resp = await fetch(window.location.pathname, { method: 'POST', body: fd });
+                const data = await resp.json();
+
+                if (data && data.verified === true) {
+                    // 缓存密码到 sessionStorage（仅本次会话）
+                    sessionStorage.setItem('large_file_pwd', pwd);
+                    overlay.remove();
+                    resolve({ verified: true, password: pwd });
+                } else {
+                    errorEl.textContent = (data && data.message) || '密码错误，请重试';
+                    errorEl.style.display = 'block';
+                    pwdInput.select();
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = '验证并上传';
+                }
+            } catch (err) {
+                errorEl.textContent = '验证请求失败：' + err.message;
+                errorEl.style.display = 'block';
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '验证并上传';
+            }
+        };
+
+        const cancel = () => {
+            overlay.remove();
+            resolve({ verified: false });
+        };
+
+        cancelBtn.addEventListener('click', cancel);
+        confirmBtn.addEventListener('click', submit);
+        pwdInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submit();
+            else if (e.key === 'Escape') cancel();
+        });
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) cancel();
+        });
+
+        // 显示并聚焦输入框
+        requestAnimationFrame(() => {
+            overlay.classList.add('show');
+            pwdInput.focus();
+        });
+    });
+}
+
+// ========================================
+// 全局配置参数（必须在所有顶层函数之前定义）
+// ========================================
+const UPLOAD_CONFIG = {
+    maxFileSize: 200 * 1024 * 1024,    // 200MB（普通上传限制）
+    maxFileSizeWithPassword: 1024 * 1024 * 1024,  // 1GB（密码验证后）
+    maxFiles: 20,
+    // 文件类型图标映射
+    typeIcons: {
+        'image': '🖼️',
+        'video': '🎬',
+        'audio': '🎵',
+        'pdf': '📄',
+        'document': '📝',
+        'spreadsheet': '📊',
+        'presentation': '📽️',
+        'archive': '📦',
+        'code': '💻',
+        'text': '📃',
+        'other': '📁'
+    },
+    // 允许的文件 MIME 类型（覆盖广泛）
+    allowedTypes: [
+        // 图片
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/ico',
+        // 视频
+        'video/mp4', 'video/webm', 'video/ogg', 'video/avi', 'video/quicktime',
+        // 音频
+        'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/flac',
+        // 文档
+        'application/pdf', 'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'text/plain', 'text/csv', 'text/html', 'text/css',
+        // 压缩包
+        'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
+        'application/x-tar', 'application/gzip', 'application/x-zip-compressed',
+        // 代码
+        'text/javascript', 'application/javascript', 'application/json', 'text/xml',
+        'application/xml', 'text/x-python', 'text/x-php'
+    ]
+};
+
+/**
+ * 检查并提示大文件密码
+ * 如果文件超过 200MB，弹出密码框
+ * 返回 true 表示可以上传，false 表示用户取消或验证失败
+ */
+async function ensureLargeFileAuthorized(files) {
+    const oversized = files.filter(f => f.size > UPLOAD_CONFIG.maxFileSize);
+    if (oversized.length === 0) return { ok: true, oversized: [] };
+
+    // 检查 sessionStorage 是否已有密码
+    const cachedPwd = sessionStorage.getItem('large_file_pwd');
+
+    // 验证缓存密码是否还有效（先做一次轻量校验）
+    if (cachedPwd) {
+        try {
+            const fd = new FormData();
+            fd.append('action', 'verify_large_file_password');
+            fd.append('password', cachedPwd);
+            const resp = await fetch(window.location.pathname, { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data && data.verified === true) {
+                return { ok: true, oversized, password: cachedPwd };
+            }
+            sessionStorage.removeItem('large_file_pwd');  // 失效就清除
+        } catch (err) {
+            // 网络错误，继续弹出密码框
+        }
+    }
+
+    // 弹出密码输入框（按最大文件大小提示）
+    const maxSize = Math.max(...oversized.map(f => f.size));
+    const result = await showLargeFilePasswordPrompt(maxSize);
+    return { ok: result.verified, oversized, password: result.password };
+}
+
+document.addEventListener('DOMContentLoaded', function() {
     // ========================================
     // DOM 元素引用
     // ========================================
@@ -213,21 +519,49 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
+     * 获取文件扩展名（小写）
+     */
+    function getFileExtension(name) {
+        if (!name) return '';
+        const parts = name.split('.');
+        return parts.length > 1 ? parts.pop().toLowerCase() : '';
+    }
+
+    /**
      * 验证文件
+     * - 不再以 200MB 作为硬限制（大文件走密码流程）
+     * - 按扩展名 + MIME 类型进行白名单校验
      */
     function validateFile(file) {
         const errors = [];
 
-        // 检查文件大小
-        if (file.size > UPLOAD_CONFIG.maxFileSize) {
-            errors.push(`文件过大（最大 ${formatFileSize(UPLOAD_CONFIG.maxFileSize)}）`);
+        // 检查文件类型：扩展名白名单
+        const ext = getFileExtension(file.name);
+        const allowedExts = [
+            // 图片
+            'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'svg',
+            // 视频
+            'mp4', 'webm', 'ogv', 'ogg', 'avi', 'mov', 'mkv',
+            // 音频
+            'mp3', 'wav', 'aac', 'flac', 'm4a', 'opus',
+            // 文档
+            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+            'txt', 'csv', 'rtf', 'md', 'markdown',
+            // 代码/文本（移除所有可被 web 服务器执行的脚本扩展名）
+            'js', 'ts', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'swift',
+            'kt', 'scala', 'rb', 'sh', 'bash', 'ps1', 'bat', 'cmd',
+            'css', 'scss', 'less', 'html', 'htm', 'xml', 'json', 'sql', 'yaml', 'yml', 'ini', 'conf', 'log',
+            // 压缩包
+            'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4'
+        ];
+        if (ext && allowedExts.indexOf(ext) === -1) {
+            errors.push('不支持的文件类型');
         }
 
-        // 检查文件类型（宽松检查，允许所有常见类型）
-        // 如果需要严格检查，取消下面的注释
-        // if (UPLOAD_CONFIG.allowedTypes.indexOf(file.type) === -1 && file.type !== '') {
-        //     errors.push('不支持的文件类型');
-        // }
+        // 检查 MIME 类型（浏览器提供的 MIME 可能为空或不可靠，仅作辅助）
+        if (file.type && UPLOAD_CONFIG.allowedTypes.indexOf(file.type) === -1) {
+            errors.push('不支持的文件类型(MIME)');
+        }
 
         return {
             valid: errors.length === 0,
@@ -628,15 +962,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * 清空所有文件
-     */
-    function clearAllFiles() {
-        pendingFiles = [];
-        updateSelectedFileList();
-        hideSelectedFilesContainer();
-    }
-
-    /**
      * 显示文件面板（旧版本，保留兼容性但不实际使用）
      */
     function showFilePanel() {
@@ -657,11 +982,18 @@ document.addEventListener('DOMContentLoaded', function() {
     /**
      * 开始拖拽上传
      */
-    function startUpload() {
+    async function startUpload() {
         // 过滤有效文件
         const validFiles = pendingFiles.filter(f => f.valid);
         if (validFiles.length === 0) {
             showToast('没有可上传的有效文件', 'error');
+            return;
+        }
+
+        // 大文件检查：超过 200MB 需要密码
+        const auth = await ensureLargeFileAuthorized(validFiles.map(f => f.file));
+        if (!auth.ok) {
+            showToast('已取消上传', 'error');
             return;
         }
 
@@ -676,6 +1008,17 @@ document.addEventListener('DOMContentLoaded', function() {
         // 创建 FormData
         const formData = new FormData();
         formData.append('duration', duration);
+
+        // 添加 CSRF token（必须，否则后端会拒绝）
+        const csrfToken = document.querySelector('input[name="csrf_token"]');
+        if (csrfToken) {
+            formData.append('csrf_token', csrfToken.value);
+        }
+
+        // 如果有大文件，附加密码字段供后端二次校验
+        if (auth.oversized && auth.oversized.length > 0 && auth.password) {
+            formData.append('large_file_password', auth.password);
+        }
 
         validFiles.forEach(fileData => {
             formData.append('files[]', fileData.file);
@@ -775,6 +1118,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     let response = {};
                     if (xhr.responseText && xhr.status !== 204) {
                         response = JSON.parse(xhr.responseText);
+                    }
+
+                    // 检查后端返回的 success 标志
+                    if (response.success === false) {
+                        handleUploadError(files, response.message || '上传失败');
+                        if (response.errors && response.errors.length > 0) {
+                            console.error('上传错误详情:', response.errors);
+                        }
+                        return;
                     }
 
                     // 更新所有文件为成功状态
@@ -1015,62 +1367,64 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * 绑定列表按钮事件（动态添加的列表项需要重新绑定）
+     * 绑定列表按钮事件（事件委托，挂在列表容器上）
+     * 每次列表内容更新时无需重新绑定
      */
     function bindListButtonEvents() {
-        // 重新绑定查看按钮
-        document.querySelectorAll('.btn-view').forEach(button => {
-            button.onclick = null;
-            button.addEventListener('click', function() {
-                const content = this.getAttribute('data-content');
-                if (content) {
-                    openCodeModal(content);
-                }
-            });
+        const listContainer = document.querySelector('.grid-card.section-full .list');
+        if (!listContainer) return;
+        if (listContainer.dataset.bound === '1') return;
+        listContainer.dataset.bound = '1';
+
+        // 查看按钮（展开）
+        listContainer.addEventListener('click', function(e) {
+            const viewBtn = e.target.closest('.btn-view');
+            if (viewBtn) {
+                const content = viewBtn.getAttribute('data-content');
+                if (content) openCodeModal(content);
+                return;
+            }
         });
 
-        // 重新绑定复制按钮
-        document.querySelectorAll('.btn-copy').forEach(button => {
-            button.onclick = null;
-            button.addEventListener('click', function() {
-                const content = this.getAttribute('data-content');
-                if (content) {
-                    navigator.clipboard.writeText(content).then(() => {
-                        showToast('文本已复制到剪贴板', 'success');
-                    }).catch(err => {
-                        console.error('复制失败：', err);
-                        showToast('复制失败，请手动复制', 'error');
-                    });
-                }
-            });
+        // 复制按钮
+        listContainer.addEventListener('click', async function(e) {
+            const copyBtn = e.target.closest('.btn-copy');
+            if (!copyBtn) return;
+            const content = copyBtn.getAttribute('data-content');
+            if (!content) return;
+            const result = await copyToClipboard(content);
+            if (result.success) {
+                showToast('文本已复制到剪贴板', 'success');
+            } else {
+                showManualCopyFallback(content);
+            }
         });
 
-        // 重新绑定删除按钮
-        document.querySelectorAll('.btn-delete[data-index]').forEach(button => {
-            button.onclick = null;
-            button.addEventListener('click', function(e) {
-                e.preventDefault();
-                const index = this.getAttribute('data-index');
-                showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
-                    const form = document.createElement('form');
-                    form.method = 'POST';
-                    form.action = window.location.pathname;
+        // 删除按钮
+        listContainer.addEventListener('click', function(e) {
+            const delBtn = e.target.closest('.btn-delete');
+            if (!delBtn) return;
+            e.preventDefault();
+            const index = delBtn.getAttribute('data-index');
+            showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = window.location.pathname;
 
-                    const csrfField = document.createElement('input');
-                    csrfField.type = 'hidden';
-                    csrfField.name = 'csrf_token';
-                    csrfField.value = window.csrfToken || document.querySelector('input[name="csrf_token"]')?.value || '';
-                    form.appendChild(csrfField);
+                const csrfField = document.createElement('input');
+                csrfField.type = 'hidden';
+                csrfField.name = 'csrf_token';
+                csrfField.value = window.csrfToken || document.querySelector('input[name="csrf_token"]')?.value || '';
+                form.appendChild(csrfField);
 
-                    const deleteField = document.createElement('input');
-                    deleteField.type = 'hidden';
-                    deleteField.name = 'delete';
-                    deleteField.value = index;
-                    form.appendChild(deleteField);
+                const deleteField = document.createElement('input');
+                deleteField.type = 'hidden';
+                deleteField.name = 'delete';
+                deleteField.value = index;
+                form.appendChild(deleteField);
 
-                    document.body.appendChild(form);
-                    form.submit();
-                });
+                document.body.appendChild(form);
+                form.submit();
             });
         });
     }
@@ -1082,7 +1436,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化拖拽事件
     initDragEvents();
 
-    // 绑定存储列表按钮事件（页面加载时初始化）
+    // 绑定存储列表按钮事件（事件委托，页面加载时初始化）
     bindListButtonEvents();
 
     // 清空选中文件按钮（上传区域内）
@@ -1110,22 +1464,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // 取消上传按钮
     if (cancelUpload) {
         cancelUpload.addEventListener('click', cancelCurrentUpload);
-    }
-
-    // 查看文件按钮
-    if (viewFilesBtn) {
-        viewFilesBtn.addEventListener('click', function() {
-            window.location.reload();
-        });
-    }
-
-    // 继续上传按钮
-    if (continueUploadBtn) {
-        continueUploadBtn.addEventListener('click', function() {
-            hideSuccessPanel();
-            pendingFiles = [];
-            hideSelectedFilesContainer();
-        });
     }
 
     // ========================================
@@ -1182,71 +1520,56 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ========================================
-    // 上传按钮事件处理
+    // 上传按钮事件处理：统一走 startUpload
     // ========================================
     if (uploadBtn) {
         uploadBtn.addEventListener('click', function(e) {
-            // 阻止按钮的默认提交行为
             e.preventDefault();
             e.stopPropagation();
 
-            // 优先使用拖拽上传的文件（pendingFiles）
+            // 优先使用拖拽或文件选择后的 pendingFiles
             if (pendingFiles.length > 0) {
                 startUpload();
                 return;
             }
 
-            // 检查是否有通过fileInput选择的文件
-            if (!fileInput || fileInput.files.length === 0) {
-                showToast('请先选择文件', 'error');
+            // 若 pendingFiles 为空，尝试从 fileInput 读入
+            if (fileInput && fileInput.files.length > 0) {
+                const files = fileInput.files;
+                if (files.length > UPLOAD_CONFIG.maxFiles) {
+                    showToast(`最多同时上传 ${UPLOAD_CONFIG.maxFiles} 个文件`, 'error');
+                    return;
+                }
+                pendingFiles = [];
+                Array.from(files).forEach(file => {
+                    const validation = validateFile(file);
+                    const fileData = {
+                        id: generateId(),
+                        file: file,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        valid: validation.valid,
+                        errors: validation.errors,
+                        preview: null
+                    };
+                    if (file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            fileData.preview = e.target.result;
+                            updateSelectedFileItem(fileData);
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                    pendingFiles.push(fileData);
+                });
+                updateSelectedFileList();
+                showSelectedFilesContainer();
+                startUpload();
                 return;
             }
 
-            // 使用FormData上传（AJAX方式，无刷新）
-            const formData = new FormData(uploadForm);
-
-            // 显示进度
-            if (progressContainer) progressContainer.style.display = 'block';
-            uploadBtn.disabled = true;
-            if (progressBar) progressBar.style.width = '0%';
-            if (progressText) progressText.textContent = '0%';
-            if (statusText) {
-                statusText.textContent = '正在连接服务器...';
-                statusText.style.color = '#a1a1aa';
-            }
-
-            // 使用fetch进行无刷新上传
-            fetch(location.pathname, {
-                method: 'POST',
-                body: formData
-            }).then(function(response) {
-                return response.json();
-            }).then(function(data) {
-                if (progressBar) progressBar.style.width = '100%';
-                if (progressText) progressText.textContent = '100%';
-                if (statusText) {
-                    statusText.textContent = '上传成功！';
-                    statusText.style.color = '#22c55e';
-                }
-
-                // 延迟重置UI并显示结果
-                setTimeout(function() {
-                    resetUploadUI();
-                    if (data.success) {
-                        showToast(data.message || '上传成功', 'success');
-                        // 无刷新更新列表
-                        refreshStorageList();
-                        // 清空fileInput
-                        fileInput.value = '';
-                    } else {
-                        showToast(data.message || '上传失败', 'error');
-                    }
-                }, 300);
-            }).catch(function(error) {
-                console.error('上传失败：', error);
-                showToast('网络错误，请检查连接', 'error');
-                resetUploadUI();
-            });
+            showToast('请先选择文件', 'error');
         });
     }
 
@@ -1335,33 +1658,6 @@ document.addEventListener('DOMContentLoaded', function() {
         currentCodeContent = '';
     }
 
-    // 查看按钮事件
-    const viewButtons = document.querySelectorAll('.btn-view');
-    viewButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const content = this.getAttribute('data-content');
-            if (content) {
-                openCodeModal(content);
-            }
-        });
-    });
-
-    // 复制按钮事件
-    const copyButtons = document.querySelectorAll('.btn-copy');
-    copyButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const content = this.getAttribute('data-content');
-            if (content) {
-                navigator.clipboard.writeText(content).then(() => {
-                    showToast('文本已复制到剪贴板', 'success');
-                }).catch(err => {
-                    console.error('复制失败：', err);
-                    showToast('复制失败，请手动复制', 'error');
-                });
-            }
-        });
-    });
-
     // 模态窗关闭按钮
     if (codeModalClose) {
         codeModalClose.addEventListener('click', closeCodeModal);
@@ -1369,8 +1665,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 模态窗复制按钮
     if (codeModalCopy) {
-        codeModalCopy.addEventListener('click', function() {
-            navigator.clipboard.writeText(currentCodeContent).then(() => {
+        codeModalCopy.addEventListener('click', async function() {
+            if (!currentCodeContent) {
+                showToast('没有可复制的内容', 'error');
+                return;
+            }
+            const result = await copyToClipboard(currentCodeContent);
+            if (result.success) {
                 this.classList.add('copied');
                 this.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"/>
@@ -1382,9 +1683,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                     </svg> 一键复制`;
                 }, 2000);
-            }).catch(err => {
-                showToast('复制失败', 'error');
-            });
+            } else {
+                // 复制失败，显示手动复制兜底弹窗
+                showManualCopyFallback(currentCodeContent);
+            }
         });
     }
 
@@ -1402,38 +1704,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.key === 'Escape' && codeModal && codeModal.classList.contains('active')) {
             closeCodeModal();
         }
-    });
-
-    // ========================================
-    // 删除按钮功能
-    // ========================================
-    const deleteButtons = document.querySelectorAll('.btn-delete[data-index]');
-    deleteButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const index = this.getAttribute('data-index');
-            showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
-                // 使用POST方式提交删除请求
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = window.location.pathname;
-
-                const csrfField = document.createElement('input');
-                csrfField.type = 'hidden';
-                csrfField.name = 'csrf_token';
-                csrfField.value = window.csrfToken || document.querySelector('input[name="csrf_token"]')?.value || '';
-                form.appendChild(csrfField);
-
-                const deleteField = document.createElement('input');
-                deleteField.type = 'hidden';
-                deleteField.name = 'delete';
-                deleteField.value = index;
-                form.appendChild(deleteField);
-
-                document.body.appendChild(form);
-                form.submit();
-            });
-        });
     });
 
     // ========================================

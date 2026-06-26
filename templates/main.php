@@ -3,7 +3,11 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>文件上传与文本存储系统</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,7 +15,12 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/variables.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/reset.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/layout.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/components.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/upload.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/responsive.css?v=<?php echo time(); ?>">
 </head>
 <body>
     <!-- 主题切换按钮 -->

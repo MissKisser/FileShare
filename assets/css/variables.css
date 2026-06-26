@@ -1,0 +1,103 @@
+/* ========================================
+   主题变量
+   ======================================== */
+:root {
+    --bg-primary: #FFFFFF;
+    --bg-secondary: #F9FAFB;
+    --bg-tertiary: #F3F4F6;
+    --text-primary: #111827;
+    --text-secondary: #6B7280;
+    --text-muted: #9CA3AF;
+    --border-color: #E5E7EB;
+    --border-hover: #D1D5DB;
+
+    --accent-blue: #3B82F6;
+    --accent-blue-light: #EFF6FF;
+    --accent-green: #10B981;
+    --accent-green-light: #ECFDF5;
+    --accent-red: #EF4444;
+    --accent-red-light: #FEF2F2;
+    --accent-amber: #F59E0B;
+    --accent-amber-light: #FFFBEB;
+
+    --sidebar-bg: #FFFFFF;
+    --sidebar-border: #E5E7EB;
+    --sidebar-hover: #F3F4F6;
+    --sidebar-active: #EFF6FF;
+
+    --card-bg: #FFFFFF;
+    --card-border: #E5E7EB;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.08);
+
+    --input-bg: #FFFFFF;
+    --input-border: #E5E7EB;
+    --input-focus: #3B82F6;
+
+    --btn-primary: #3B82F6;
+    --btn-primary-hover: #2563EB;
+    --btn-secondary: #F3F4F6;
+    --btn-secondary-hover: #E5E7EB;
+    --btn-danger: #EF4444;
+    --btn-danger-hover: #DC2626;
+    --btn-success: #10B981;
+    --btn-success-hover: #059669;
+
+    --overlay-bg: rgba(0,0,0,0.4);
+    --scrollbar-thumb: #D1D5DB;
+    --scrollbar-track: transparent;
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --sidebar-width: 220px;
+
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.25s ease;
+}
+
+[data-theme="dark"] {
+    --bg-primary: #0F172A;
+    --bg-secondary: #1E293B;
+    --bg-tertiary: #334155;
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --border-color: #334155;
+    --border-hover: #475569;
+
+    --accent-blue: #60A5FA;
+    --accent-blue-light: #1E3A5F;
+    --accent-green: #34D399;
+    --accent-green-light: #134E4A;
+    --accent-red: #F87171;
+    --accent-red-light: #7F1D1D;
+    --accent-amber: #FBBF24;
+    --accent-amber-light: #78350F;
+
+    --sidebar-bg: #1E293B;
+    --sidebar-border: #334155;
+    --sidebar-hover: #334155;
+    --sidebar-active: #1E3A5F;
+
+    --card-bg: #1E293B;
+    --card-border: #334155;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.3);
+
+    --input-bg: #1E293B;
+    --input-border: #334155;
+    --input-focus: #60A5FA;
+
+    --btn-primary: #3B82F6;
+    --btn-primary-hover: #60A5FA;
+    --btn-secondary: #334155;
+    --btn-secondary-hover: #475569;
+    --btn-danger: #DC2626;
+    --btn-danger-hover: #EF4444;
+    --btn-success: #059669;
+    --btn-success-hover: #10B981;
+
+    --overlay-bg: rgba(0,0,0,0.6);
+    --scrollbar-thumb: #475569;
+}

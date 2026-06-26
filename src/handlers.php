@@ -5,21 +5,68 @@
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
-// 禁止上传的可执行文件扩展名
-define('BLOCKED_EXTENSIONS', ['php', 'phtml', 'php3', 'php5', 'phar', 'phps', 'pht', 'php7', 'php8', 'cgi', 'pl', 'py', 'sh', 'bash', 'exe', 'bat', 'cmd', 'com', 'msi', 'jar', 'war', 'asp', 'aspx', 'jsp']);
+// 安全限制由 Nginx 配置保障（uploads 目录禁止执行脚本）
+// 以下仅保留基本检查，防止明显恶意文件
 
-// 允许的MIME类型
-define('ALLOWED_MIME_TYPES', [
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/ico',
-    'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain', 'text/csv', 'text/html', 'text/xml',
-    'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/x-tar', 'application/gzip',
-    'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/flac',
-    'video/mp4', 'video/webm', 'video/ogg', 'video/x-matroska', 'video/quicktime',
-    'application/json', 'application/xml', 'application/javascript', 'application/octet-stream'
-]);
+/**
+ * 验证文件类型安全性（白名单机制）
+ */
+function validateFileType($filename, $tmpPath) {
+    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+    // 扩展名白名单校验
+    if (!in_array($ext, ALLOWED_FILE_EXTENSIONS, true)) {
+        return ['valid' => false, 'error' => "不支持的文件类型: .{$ext}"];
+    }
+
+    // MIME 类型白名单校验（如果 finfo 可用）
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $tmpPath);
+        finfo_close($finfo);
+
+        // 清理 MIME，例如 image/svg+xml; charset=utf-8 -> image/svg+xml
+        if ($mimeType) {
+            $parts = explode(';', $mimeType);
+            $mimeType = strtolower(trim($parts[0]));
+        }
+
+        if ($mimeType && !in_array($mimeType, ALLOWED_FILE_MIMES, true)) {
+            return ['valid' => false, 'error' => "不支持的文件类型(MIME: {$mimeType})"];
+        }
+    }
+
+    return ['valid' => true];
+}
+
+/**
+ * 检查当前会话/IP 是否超过大文件密码验证频率限制
+ * 返回 true 表示被限制
+ */
+function isRateLimited($maxAttempts = 5, $windowSeconds = 60) {
+    $now = time();
+    if (!isset($_SESSION['large_file_password_attempts'])) {
+        $_SESSION['large_file_password_attempts'] = [];
+    }
+    $attempts = &$_SESSION['large_file_password_attempts'];
+    // 清理过期记录
+    $attempts = array_filter($attempts, function ($timestamp) use ($now, $windowSeconds) {
+        return $now - $timestamp < $windowSeconds;
+    });
+    $attempts = array_values($attempts);
+
+    return count($attempts) >= $maxAttempts;
+}
+
+/**
+ * 记录一次大文件密码验证尝试
+ */
+function recordRateLimitAttempt() {
+    if (!isset($_SESSION['large_file_password_attempts'])) {
+        $_SESSION['large_file_password_attempts'] = [];
+    }
+    $_SESSION['large_file_password_attempts'][] = time();
+}
 
 /**
  * 验证CSRF Token
@@ -32,37 +79,99 @@ function validateCSRF() {
     return hash_equals($_SESSION['csrf_token'], $token);
 }
 
-/**
- * 验证文件类型安全性
- */
-function validateFileType($filename, $tmpPath) {
-    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-    if (in_array($ext, BLOCKED_EXTENSIONS)) {
-        return ['valid' => false, 'error' => "禁止上传可执行文件类型: .{$ext}"];
-    }
-
-    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mimeType = finfo_file($finfo, $tmpPath);
-    finfo_close($finfo);
-
-    if ($mimeType && !in_array($mimeType, ALLOWED_MIME_TYPES)) {
-        if (strpos($mimeType, 'php') !== false || strpos($mimeType, 'x-php') !== false) {
-            return ['valid' => false, 'error' => "禁止上传PHP相关文件"];
-        }
-    }
-
-    return ['valid' => true];
-}
-
 function handleRequest() {
     $data = loadData();
-    
+
+    // 处理大文件密码预校验请求（AJAX 调用）
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_large_file_password') {
+        header('Content-Type: application/json; charset=utf-8');
+
+        // CSRF 校验
+        if (!validateCSRF()) {
+            http_response_code(403);
+            echo json_encode(['verified' => false, 'message' => '安全验证失败，请刷新页面重试'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // 速率限制：5 次/分钟
+        if (isRateLimited(5, 60)) {
+            http_response_code(429);
+            echo json_encode(['verified' => false, 'message' => '尝试次数过多，请稍后再试'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        recordRateLimitAttempt();
+
+        $pwd = $_POST['password'] ?? '';
+        if (verifyLargeFilePassword($pwd)) {
+            echo json_encode(['verified' => true]);
+        } else {
+            echo json_encode(['verified' => false, 'message' => '密码错误']);
+        }
+        exit;
+    }
+
     // 处理文件上传
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['files'])) {
+        // 大文件密码二次校验（防绕过前端）
+        $hasLargeFile = false;
+        if (isset($_FILES['files']['size']) && is_array($_FILES['files']['size'])) {
+            foreach ($_FILES['files']['size'] as $size) {
+                if ($size > MAX_FILE_SIZE_NORMAL) {
+                    $hasLargeFile = true;
+                    break;
+                }
+            }
+        } elseif (isset($_FILES['files']['size']) && $_FILES['files']['size'] > MAX_FILE_SIZE_NORMAL) {
+            $hasLargeFile = true;
+        }
+
+        if ($hasLargeFile) {
+            $pwd = $_POST['large_file_password'] ?? '';
+            if (!verifyLargeFilePassword($pwd)) {
+                header('Content-Type: application/json; charset=utf-8');
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'message' => '大文件上传密码错误或缺失'
+                ]);
+                exit;
+            }
+            // 再次校验：单文件大小不能超过密码授权上限
+            if (isset($_FILES['files']['size']) && is_array($_FILES['files']['size'])) {
+                foreach ($_FILES['files']['size'] as $size) {
+                    if ($size > MAX_FILE_SIZE_LARGE) {
+                        header('Content-Type: application/json; charset=utf-8');
+                        http_response_code(413);
+                        echo json_encode([
+                            'success' => false,
+                            'message' => '文件超过授权上传上限（' . (MAX_FILE_SIZE_LARGE / 1024 / 1024) . 'MB）'
+                        ]);
+                        exit;
+                    }
+                }
+            }
+        }
+
+        // 普通文件大小限制（不需密码）
+        if (isset($_FILES['files']['size']) && is_array($_FILES['files']['size'])) {
+            foreach ($_FILES['files']['size'] as $size) {
+                if ($size > MAX_FILE_SIZE_NORMAL) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    http_response_code(413);
+                    echo json_encode([
+                        'success' => false,
+                        'message' => '文件超过普通上传上限（' . (MAX_FILE_SIZE_NORMAL / 1024 / 1024) . 'MB），请使用大文件密码'
+                    ]);
+                    exit;
+                }
+            }
+        }
+
         handleFileUpload($data);
         return;
     }
-    
+
     // 处理文本保存
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['text'])) {
         handleTextSave($data);
@@ -82,27 +191,58 @@ function handleRequest() {
     }
 }
 
-// 获取真实IP地址（带验证）
+// 获取真实IP地址
+// 默认信任 REMOTE_ADDR；仅在 REMOTE_ADDR 属于可信代理时读取 X-Forwarded-For 等头
 function getRealIP() {
-    $ip = null;
-
-    // 按优先级检查各HTTP头
-    if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
-        $ip = $_SERVER['HTTP_CLIENT_IP'];
-    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-        $ip = trim($ips[0]);
-    } elseif (!empty($_SERVER['HTTP_X_REAL_IP'])) {
-        $ip = $_SERVER['HTTP_X_REAL_IP'];
+    // 可通过环境变量或 .env 配置可信代理，例如 TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12
+    $trustedProxies = [];
+    $trustedEnv = getenv('TRUSTED_PROXIES');
+    if ($trustedEnv) {
+        $trustedProxies = array_map('trim', explode(',', $trustedEnv));
     }
 
-    // 验证IP格式，防止IP欺骗
-    if ($ip && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-        return $ip;
+    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+    if ($trustedProxies && $remoteAddr !== 'unknown') {
+        foreach ($trustedProxies as $cidr) {
+            if (ipInCidr($remoteAddr, $cidr)) {
+                // 信任该代理，尝试从 forwarded 头获取真实 IP
+                if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+                    $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+                    foreach ($ips as $candidate) {
+                        $candidate = trim($candidate);
+                        if (filter_var($candidate, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                            return $candidate;
+                        }
+                    }
+                }
+                if (!empty($_SERVER['HTTP_X_REAL_IP']) && filter_var($_SERVER['HTTP_X_REAL_IP'], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $_SERVER['HTTP_X_REAL_IP'];
+                }
+                if (!empty($_SERVER['HTTP_CLIENT_IP']) && filter_var($_SERVER['HTTP_CLIENT_IP'], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $_SERVER['HTTP_CLIENT_IP'];
+                }
+                break;
+            }
+        }
     }
 
-    // 回退到REMOTE_ADDR
-    return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    return $remoteAddr;
+}
+
+// 辅助函数：判断 IP 是否在 CIDR 段内
+function ipInCidr($ip, $cidr) {
+    if (strpos($cidr, '/') === false) {
+        return $ip === $cidr;
+    }
+    list($subnet, $bits) = explode('/', $cidr);
+    $ipLong = ip2long($ip);
+    $subnetLong = ip2long($subnet);
+    if ($ipLong === false || $subnetLong === false) {
+        return false;
+    }
+    $mask = -1 << (32 - (int)$bits);
+    return ($ipLong & $mask) === ($subnetLong & $mask);
 }
 
 // 记录上传日志
