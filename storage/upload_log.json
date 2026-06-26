@@ -727,5 +727,32 @@
         "duration": 600,
         "expire_time": 1776045637,
         "user_agent": "Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/146.0.0.0 Safari\/537.36 Edg\/146.0.0.0"
+    },
+    {
+        "ip": "127.0.0.1",
+        "filename": "文本内容 (<!DOCTYPE html>\r\n<ht...)",
+        "filesize": 26839,
+        "upload_time": 1777703865,
+        "duration": 600,
+        "expire_time": 1777704465,
+        "user_agent": "Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/147.0.0.0 Safari\/537.36"
+    },
+    {
+        "ip": "127.0.0.1",
+        "filename": "文本内容 (http:\/\/localhost:808...)",
+        "filesize": 31,
+        "upload_time": 1777704498,
+        "duration": 600,
+        "expire_time": 1777705098,
+        "user_agent": "Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/147.0.0.0 Safari\/537.36"
+    },
+    {
+        "ip": "127.0.0.1",
+        "filename": "文本内容 (9...)",
+        "filesize": 1,
+        "upload_time": 1777706291,
+        "duration": 600,
+        "expire_time": 1777706891,
+        "user_agent": "Mozilla\/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit\/537.36 (KHTML, like Gecko) Chrome\/147.0.0.0 Safari\/537.36"
     }
 ]
