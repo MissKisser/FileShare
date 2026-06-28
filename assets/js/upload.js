@@ -286,7 +286,7 @@ function showLargeFilePasswordPrompt(fileSize) {
 // ========================================
 const UPLOAD_CONFIG = {
     maxFileSize: 200 * 1024 * 1024,    // 200MB（普通上传限制）
-    maxFileSizeWithPassword: 1024 * 1024 * 1024,  // 1GB（密码验证后）
+    maxFileSizeWithPassword: 2048 * 1024 * 1024,  // 2GB（密码验证后）
     maxFiles: 20,
     // 文件类型图标映射
     typeIcons: {

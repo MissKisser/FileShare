@@ -1,6 +1,12 @@
 <?php
 session_start();
-session_regenerate_id(true);
+// 仅在首次创建 session 时 regenerate id，避免每次请求都换 session
+// 导致前端持有的旧 csrf_token 在新 session 中失效（CSRF 误拒）
+if (empty($_SESSION['initialized'])) {
+    session_regenerate_id(true);
+    $_SESSION['initialized'] = true;
+}
+
 
 // 生成CSRF Token
 if (empty($_SESSION['csrf_token'])) {

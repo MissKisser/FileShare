@@ -32,7 +32,7 @@ foreach ($dirs as $dir) {
 
 // 业务层上传限制
 define('MAX_FILE_SIZE_NORMAL', 200 * 1024 * 1024);   // 200MB，普通用户
-define('MAX_FILE_SIZE_LARGE', 1000 * 1024 * 1024);    // 1GB，密码验证后
+define('MAX_FILE_SIZE_LARGE', 2048 * 1024 * 1024);    // 2GB，密码验证后
 define('UPLOAD_THRESHOLD_FOR_PASSWORD', 200 * 1024 * 1024); // 触发密码验证的阈值
 
 // 大文件上传密码：优先从环境变量读取，其次读取项目根目录 .env 文件

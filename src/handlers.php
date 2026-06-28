@@ -153,8 +153,8 @@ function handleRequest() {
             }
         }
 
-        // 普通文件大小限制（不需密码）
-        if (isset($_FILES['files']['size']) && is_array($_FILES['files']['size'])) {
+        // 普通文件大小限制（不需密码）。已经通过大文件密码校验的文件不受此限制
+        if (!$hasLargeFile && isset($_FILES['files']['size']) && is_array($_FILES['files']['size'])) {
             foreach ($_FILES['files']['size'] as $size) {
                 if ($size > MAX_FILE_SIZE_NORMAL) {
                     header('Content-Type: application/json; charset=utf-8');
@@ -301,6 +301,14 @@ function handleFileUpload(&$data) {
         $files = $_FILES['files'];
         $uploadCount = 0;
         $errors = [];
+
+        // 统一为数组结构：浏览器多文件上传天然是数组，但 curl 等单文件上传时是字符串
+        // 这里把每个字段都规整成数组，方便下面统一循环处理
+        if (!is_array($files['name'])) {
+            foreach ($files as $key => $value) {
+                $files[$key] = [$value];
+            }
+        }
 
         $fileCount = count($files['name']);
 
