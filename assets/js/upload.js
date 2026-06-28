@@ -235,6 +235,9 @@ function showLargeFilePasswordPrompt(fileSize) {
                 const fd = new FormData();
                 fd.append('action', 'verify_large_file_password');
                 fd.append('password', pwd);
+                // 加上 csrf_token，否则后端 validateCSRF() 会直接 403
+                const csrfEl = document.querySelector('input[name="csrf_token"]');
+                if (csrfEl) fd.append('csrf_token', csrfEl.value);
                 const resp = await fetch(window.location.pathname, { method: 'POST', body: fd });
                 const data = await resp.json();
 
@@ -345,6 +348,8 @@ async function ensureLargeFileAuthorized(files) {
             const fd = new FormData();
             fd.append('action', 'verify_large_file_password');
             fd.append('password', cachedPwd);
+            const csrfEl = document.querySelector('input[name="csrf_token"]');
+            if (csrfEl) fd.append('csrf_token', csrfEl.value);
             const resp = await fetch(window.location.pathname, { method: 'POST', body: fd });
             const data = await resp.json();
             if (data && data.verified === true) {
