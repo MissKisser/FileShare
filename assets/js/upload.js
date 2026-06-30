@@ -324,6 +324,8 @@ const UPLOAD_CONFIG = {
         // 压缩包
         'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
         'application/x-tar', 'application/gzip', 'application/x-zip-compressed',
+        // Android APK（浏览器 finfo 偶尔报 octet-stream / zip，扩展名兜底是主防线）
+        'application/vnd.android.package-archive', 'application/octet-stream',
         // 代码
         'text/javascript', 'application/javascript', 'application/json', 'text/xml',
         'application/xml', 'text/x-python', 'text/x-php'
@@ -557,7 +559,9 @@ document.addEventListener('DOMContentLoaded', function() {
             'kt', 'scala', 'rb', 'sh', 'bash', 'ps1', 'bat', 'cmd',
             'css', 'scss', 'less', 'html', 'htm', 'xml', 'json', 'sql', 'yaml', 'yml', 'ini', 'conf', 'log',
             // 压缩包
-            'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4'
+            'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4',
+            // Android 应用包（二进制 zip 容器，无 web 解释风险，扩展名是主防线）
+            'apk'
         ];
         if (ext && allowedExts.indexOf(ext) === -1) {
             errors.push('不支持的文件类型');
