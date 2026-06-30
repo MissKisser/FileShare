@@ -90,7 +90,9 @@ define('ALLOWED_FILE_EXTENSIONS', [
     'kt', 'scala', 'rb', 'sh', 'bash', 'ps1', 'bat', 'cmd',
     'css', 'scss', 'less', 'html', 'htm', 'xml', 'json', 'sql', 'yaml', 'yml', 'txt', 'ini', 'conf', 'log',
     // 压缩包
-    'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4'
+    'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4',
+    // Android 应用包（二进制，无 web 解释风险）
+    'apk'
 ]);
 
 /**
@@ -120,7 +122,9 @@ define('ALLOWED_FILE_MIMES', [
     // 压缩包
     'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
     'application/x-tar', 'application/gzip', 'application/x-gzip', 'application/x-bzip2',
-    'application/x-xz'
+    'application/x-xz',
+    // Android Package（apk 实际 finfo 偶尔报 application/zip / octet-stream, 配合扩展名白名单兜底）
+    'application/vnd.android.package-archive'
 ]);
 
 /**
