@@ -34,3 +34,9 @@ uploads.bak/
 # 运行时配置（敏感，不入库）
 .env
 .user.ini
+
+# 运行时数据（SQLite 数据库、JSON 备份）
+storage/fileshare.db
+storage/data.json.bak
+storage/upload_log.json.bak
+uploads/!*

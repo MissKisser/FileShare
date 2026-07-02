@@ -23,6 +23,44 @@ foreach ($dirs as $dir) {
 }
 
 // ============================================================
+// 环境变量加载
+// ============================================================
+
+/**
+ * 从 .env 文件或环境变量读取配置值
+ * 
+ * @param string $key 键名
+ * @param string $default 默认值
+ * @return string
+ */
+function loadEnvVar($key, $default = '') {
+    // 优先从系统环境变量读取
+    $value = getenv($key);
+    if ($value !== false && $value !== '') {
+        return $value;
+    }
+
+    // 从 .env 文件读取
+    $envPath = ROOT_DIR . '/.env';
+    if (file_exists($envPath) && is_readable($envPath)) {
+        $envLines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($envLines as $line) {
+            $line = trim($line);
+            if ($line === '' || strpos($line, '#') === 0) {
+                continue;
+            }
+            $prefix = $key . '=';
+            if (strpos($line, $prefix) === 0) {
+                $value = substr($line, strlen($prefix));
+                return trim($value, '"\'');
+            }
+        }
+    }
+
+    return $default;
+}
+
+// ============================================================
 // 上传配置
 // ============================================================
 // PHP 运行时配置说明：
@@ -35,31 +73,21 @@ define('MAX_FILE_SIZE_NORMAL', 200 * 1024 * 1024);   // 200MB，普通用户
 define('MAX_FILE_SIZE_LARGE', 2048 * 1024 * 1024);    // 2GB，密码验证后
 define('UPLOAD_THRESHOLD_FOR_PASSWORD', 200 * 1024 * 1024); // 触发密码验证的阈值
 
-// 大文件上传密码：优先从环境变量读取，其次读取项目根目录 .env 文件
-// 注意：部署前必须设置 LARGE_FILE_PASSWORD，否则应用无法启动
-$largeFilePassword = getenv('LARGE_FILE_PASSWORD');
-if ($largeFilePassword === false || $largeFilePassword === '') {
-    $envPath = ROOT_DIR . '/.env';
-    if (file_exists($envPath) && is_readable($envPath)) {
-        $envLines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        foreach ($envLines as $line) {
-            $line = trim($line);
-            if ($line === '' || strpos($line, '#') === 0) {
-                continue;
-            }
-            if (strpos($line, 'LARGE_FILE_PASSWORD=') === 0) {
-                $largeFilePassword = substr($line, strlen('LARGE_FILE_PASSWORD='));
-                // 去除可能的引号
-                $largeFilePassword = trim($largeFilePassword, '"\'');
-                break;
-            }
-        }
-    }
-}
+// 大文件上传密码
+$largeFilePassword = loadEnvVar('LARGE_FILE_PASSWORD');
 if (empty($largeFilePassword)) {
     die('Error: LARGE_FILE_PASSWORD is not configured. Please set the LARGE_FILE_PASSWORD environment variable or add it to .env');
 }
 define('LARGE_FILE_PASSWORD', $largeFilePassword);
+
+// 管理员密码（F9）
+define('ADMIN_PASSWORD', loadEnvVar('ADMIN_PASSWORD', ''));
+
+// API 开关（F3）
+define('API_ENABLED', loadEnvVar('API_ENABLED', '1') === '1');
+
+// 站点标题
+define('SITE_TITLE', loadEnvVar('SITE_TITLE', '文件上传与文本存储系统'));
 
 // 运行时可调整的配置（PHP_INI_ALL 模式，ini_set 有效）
 @ini_set('max_execution_time', '600');

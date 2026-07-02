@@ -2,6 +2,8 @@
 /**
  * 请求处理器
  * 作者：Hackerdallas
+ * 
+ * 重构为 SQLite 数据库操作，新增分享、预览、批量操作等路由
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -79,10 +81,64 @@ function validateCSRF() {
     return hash_equals($_SESSION['csrf_token'], $token);
 }
 
+/**
+ * 主请求路由分发
+ */
 function handleRequest() {
-    $data = loadData();
+    // ===== 分享页面路由（F1） =====
+    if (isset($_GET['s'])) {
+        handleSharePage();
+        return;
+    }
 
-    // 处理大文件密码预校验请求（AJAX 调用）
+    // ===== 预览路由（F5） =====
+    if (isset($_GET['preview'])) {
+        handlePreview();
+        return;
+    }
+
+    // ===== API 路由（F3） =====
+    if (isset($_GET['api'])) {
+        require_once __DIR__ . '/api.php';
+        handleApiRequest();
+        return;
+    }
+
+    // ===== 管理后台路由（F9） =====
+    if (isset($_GET['admin'])) {
+        require_once __DIR__ . '/admin.php';
+        handleAdminRequest();
+        return;
+    }
+
+    // ===== 迁移路由 =====
+    if (isset($_GET['action']) && $_GET['action'] === 'migrate') {
+        require_once __DIR__ . '/migrate.php';
+        header('Content-Type: application/json; charset=utf-8');
+        $result = runMigration();
+        echo json_encode($result, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ===== 搜索/过滤 AJAX 路由（F6） =====
+    if (isset($_GET['action']) && $_GET['action'] === 'search') {
+        handleSearch();
+        return;
+    }
+
+    // ===== 批量删除路由（F7） =====
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'batch_delete') {
+        handleBatchDelete();
+        return;
+    }
+
+    // ===== 分享密码验证路由（F2） =====
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_share_password') {
+        handleSharePasswordVerify();
+        return;
+    }
+
+    // ===== 大文件密码预校验请求（AJAX 调用） =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_large_file_password') {
         header('Content-Type: application/json; charset=utf-8');
 
@@ -111,7 +167,7 @@ function handleRequest() {
         exit;
     }
 
-    // 处理文件上传
+    // ===== 文件上传 =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['files'])) {
         // 大文件密码二次校验（防绕过前端）
         $hasLargeFile = false;
@@ -153,7 +209,7 @@ function handleRequest() {
             }
         }
 
-        // 普通文件大小限制（不需密码）。已经通过大文件密码校验的文件不受此限制
+        // 普通文件大小限制
         if (!$hasLargeFile && isset($_FILES['files']['size']) && is_array($_FILES['files']['size'])) {
             foreach ($_FILES['files']['size'] as $size) {
                 if ($size > MAX_FILE_SIZE_NORMAL) {
@@ -168,25 +224,25 @@ function handleRequest() {
             }
         }
 
-        handleFileUpload($data);
+        handleFileUpload();
         return;
     }
 
-    // 处理文本保存
+    // ===== 文本保存 =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['text'])) {
-        handleTextSave($data);
+        handleTextSave();
         return;
     }
     
-    // 处理删除（仅POST）
+    // ===== 删除（仅POST） =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
-        handleDelete($data);
+        handleDelete();
         return;
     }
     
-    // 处理下载
+    // ===== 下载 =====
     if (isset($_GET['download'])) {
-        handleDownload($data);
+        handleDownload();
         return;
     }
 }
@@ -245,49 +301,11 @@ function ipInCidr($ip, $cidr) {
     return ($ipLong & $mask) === ($subnetLong & $mask);
 }
 
-// 记录上传日志
-function logUpload($filename, $filesize, $duration) {
-    $logFile = STORAGE_DIR . 'upload_log.json';
-    
-    $logs = [];
-    if (file_exists($logFile)) {
-        $content = file_get_contents($logFile);
-        $logs = json_decode($content, true) ?: [];
-    }
-
-    $logs[] = [
-        'ip' => getRealIP(),
-        'filename' => $filename,
-        'filesize' => $filesize,
-        'upload_time' => time(),
-        'duration' => $duration,
-        'expire_time' => $duration === 0 ? 0 : (time() + $duration),
-        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
-    ];
-
-    if (count($logs) > 500) {
-        $logs = array_slice($logs, -500);
-    }
-
-    file_put_contents($logFile, json_encode($logs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-}
-
-// 获取上传日志
-function getUploadLogs($limit = 50) {
-    $logFile = STORAGE_DIR . 'upload_log.json';
-    
-    if (!file_exists($logFile)) {
-        return [];
-    }
-    
-    $content = file_get_contents($logFile);
-    $logs = json_decode($content, true) ?: [];
-    
-    return array_slice(array_reverse($logs), 0, $limit);
-}
-
-// 处理文件上传
-function handleFileUpload(&$data) {
+// ============================================================
+// 文件上传处理
+// ============================================================
+function handleFileUpload() {
+    $db = getDB();
     header('Content-Type: application/json; charset=utf-8');
 
     // CSRF验证
@@ -298,12 +316,13 @@ function handleFileUpload(&$data) {
 
     try {
         $duration = intval($_POST['duration'] ?? 600);
+        $accessPassword = $_POST['access_password'] ?? ''; // F2 访问密码
         $files = $_FILES['files'];
         $uploadCount = 0;
         $errors = [];
+        $uploadedItems = []; // 返回上传成功项目的信息
 
-        // 统一为数组结构：浏览器多文件上传天然是数组，但 curl 等单文件上传时是字符串
-        // 这里把每个字段都规整成数组，方便下面统一循环处理
+        // 统一为数组结构
         if (!is_array($files['name'])) {
             foreach ($files as $key => $value) {
                 $files[$key] = [$value];
@@ -323,48 +342,99 @@ function handleFileUpload(&$data) {
                     continue;
                 }
 
-                // 净化文件名：移除危险字符，限制长度
+                // 计算文件哈希（F10 去重）
+                $fileHash = hash_file('sha256', $files['tmp_name'][$i]);
+
+                // 检查是否有相同哈希的文件已存在
+                $dupStmt = $db->prepare('SELECT id, path, share_code FROM items WHERE file_hash = ? AND type = \'file\' LIMIT 1');
+                $dupStmt->execute([$fileHash]);
+                $duplicate = $dupStmt->fetch();
+
+                // 净化文件名
                 $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($originalName));
                 $safeName = substr($safeName, 0, 200);
-                $filename = time() . '_' . uniqid() . '_' . $safeName;
-                $filepath = UPLOAD_DIR . $filename;
 
-                if (!is_dir(UPLOAD_DIR)) {
-                    mkdir(UPLOAD_DIR, 0755, true);
-                }
-
-                if (move_uploaded_file($files['tmp_name'][$i], $filepath)) {
-                    $expire = $duration === 0 ? 0 : time() + $duration;
-                    $data[] = [
-                        'type' => 'file',
-                        'name' => $originalName,
-                        'path' => $filepath,
-                        'size' => $files['size'][$i],
-                        'time' => time(),
-                        'expire' => $expire,
-                        'ip' => getRealIP()
-                    ];
-
-                    logUpload($originalName, $files['size'][$i], $duration);
-
-                    $uploadCount++;
+                if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
+                    // 去重：复用已有文件路径
+                    $filepath = $duplicate['path'];
                 } else {
-                    $errors[] = "文件 {$originalName} 移动失败";
+                    // 新文件
+                    $filename = time() . '_' . uniqid() . '_' . $safeName;
+                    $filepath = UPLOAD_DIR . $filename;
+
+                    if (!is_dir(UPLOAD_DIR)) {
+                        mkdir(UPLOAD_DIR, 0755, true);
+                    }
+
+                    if (!move_uploaded_file($files['tmp_name'][$i], $filepath)) {
+                        $errors[] = "文件 {$originalName} 移动失败";
+                        continue;
+                    }
                 }
+
+                // 检测 MIME 类型
+                $mimeType = '';
+                if (function_exists('finfo_open')) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_file($finfo, $filepath);
+                    finfo_close($finfo);
+                }
+
+                $expire = $duration === 0 ? 0 : time() + $duration;
+                $shareCode = generateShareCode($db);
+
+                // 密码处理
+                $passwordHash = null;
+                if (!empty($accessPassword)) {
+                    $passwordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
+                }
+
+                // 插入数据库
+                $stmt = $db->prepare('
+                    INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ');
+                $stmt->execute([
+                    $shareCode,
+                    'file',
+                    $originalName,
+                    $filepath,
+                    $files['size'][$i],
+                    $fileHash,
+                    $mimeType,
+                    $passwordHash,
+                    0,
+                    getRealIP(),
+                    $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+                    time(),
+                    $expire,
+                    $duration
+                ]);
+
+                $itemId = $db->lastInsertId();
+
+                // 记录上传日志
+                logUploadToDb($itemId, $originalName, $files['size'][$i], $duration);
+
+                $uploadCount++;
+                $uploadedItems[] = [
+                    'id' => $itemId,
+                    'name' => $originalName,
+                    'share_code' => $shareCode,
+                    'share_url' => getBaseUrl() . '?s=' . $shareCode,
+                    'size' => $files['size'][$i],
+                ];
             } else {
                 $errors[] = "文件 {$files['name'][$i]} 上传错误（代码：{$files['error'][$i]}）";
             }
-        }
-
-        if ($uploadCount > 0) {
-            saveData($data);
         }
 
         $response = [
             'success' => $uploadCount > 0,
             'message' => $uploadCount > 0 ? "成功上传 {$uploadCount} 个文件" : '上传失败',
             'uploaded' => $uploadCount,
-            'errors' => $errors
+            'errors' => $errors,
+            'items' => $uploadedItems,
         ];
 
         if (ob_get_level()) {
@@ -389,8 +459,10 @@ function handleFileUpload(&$data) {
     exit;
 }
 
-// 处理文本保存
-function handleTextSave(&$data) {
+// ============================================================
+// 文本保存处理
+// ============================================================
+function handleTextSave() {
     // CSRF验证
     if (!validateCSRF()) {
         $_SESSION['message'] = '安全验证失败，请刷新页面重试';
@@ -400,27 +472,53 @@ function handleTextSave(&$data) {
 
     $text = $_POST['text'] ?? '';
     $duration = intval($_POST['text_duration'] ?? 600);
+    $accessPassword = $_POST['access_password'] ?? ''; // F2 访问密码
+
     if (!empty(trim($text))) {
-        $data[] = [
-            'type' => 'text',
-            'content' => $text,
-            'time' => time(),
-            'expire' => $duration === 0 ? 0 : time() + $duration,
-            'ip' => getRealIP()
-        ];
-        saveData($data);
+        $db = getDB();
+        $expire = $duration === 0 ? 0 : time() + $duration;
+        $shareCode = generateShareCode($db);
 
-        logUpload('文本内容 (' . mb_substr($text, 0, 20) . '...)', strlen($text), $duration);
+        // 密码处理
+        $passwordHash = null;
+        if (!empty($accessPassword)) {
+            $passwordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
+        }
 
-        $_SESSION['message'] = '文本保存成功！';
+        $stmt = $db->prepare('
+            INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $stmt->execute([
+            $shareCode,
+            'text',
+            $text,
+            strlen($text),
+            $passwordHash,
+            0,
+            getRealIP(),
+            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+            time(),
+            $expire,
+            $duration
+        ]);
+
+        $itemId = $db->lastInsertId();
+
+        // 记录日志
+        logUploadToDb($itemId, '文本内容 (' . mb_substr($text, 0, 20) . '...)', strlen($text), $duration);
+
+        $_SESSION['message'] = '文本保存成功！分享链接：' . getBaseUrl() . '?s=' . $shareCode;
     }
 
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-// 处理删除（仅POST + CSRF验证）
-function handleDelete(&$data) {
+// ============================================================
+// 删除处理
+// ============================================================
+function handleDelete() {
     // 只接受POST请求
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
@@ -428,7 +526,6 @@ function handleDelete(&$data) {
     }
 
     // CSRF Token验证
-    session_start();
     $token = $_POST['csrf_token'] ?? '';
     if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
         $_SESSION['message'] = '安全验证失败！';
@@ -436,35 +533,316 @@ function handleDelete(&$data) {
         exit;
     }
 
-    $index = intval($_POST['delete'] ?? -1);
-    if ($index >= 0 && isset($data[$index])) {
-        if ($data[$index]['type'] === 'file' && file_exists($data[$index]['path'])) {
-            @unlink($data[$index]['path']);
+    $id = intval($_POST['delete'] ?? -1);
+    if ($id > 0) {
+        if (deleteItemById($id)) {
+            $_SESSION['message'] = '删除成功！';
+        } else {
+            $_SESSION['message'] = '项目不存在或已删除';
         }
-        unset($data[$index]);
-        $data = array_values($data);
-        saveData($data);
-        $_SESSION['message'] = '删除成功！';
     }
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-// 处理下载
-function handleDownload(&$data) {
-    $index = intval($_GET['download']);
-    if (isset($data[$index]) && $data[$index]['type'] === 'file') {
-        $file = $data[$index];
-        if (file_exists($file['path'])) {
+// ============================================================
+// 批量删除处理（F7）
+// ============================================================
+function handleBatchDelete() {
+    header('Content-Type: application/json; charset=utf-8');
+
+    // CSRF验证
+    if (!validateCSRF()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => '安全验证失败'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $ids = $_POST['ids'] ?? [];
+    if (!is_array($ids)) {
+        $ids = [$ids];
+    }
+
+    if (empty($ids)) {
+        echo json_encode(['success' => false, 'message' => '未选择任何项目'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $result = batchDeleteItems($ids);
+    echo json_encode([
+        'success' => $result['deleted'] > 0,
+        'message' => "成功删除 {$result['deleted']} 个项目",
+        'deleted' => $result['deleted'],
+        'errors' => $result['errors'],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ============================================================
+// 下载处理
+// ============================================================
+function handleDownload() {
+    $id = intval($_GET['download']);
+    $item = getItemById($id);
+
+    if ($item && $item['type'] === 'file') {
+        // 检查密码保护（F2）
+        if (!empty($item['password'])) {
+            $unlockedKey = 'unlocked_' . $item['share_code'];
+            if (empty($_SESSION[$unlockedKey])) {
+                // 需要密码验证，重定向到分享页
+                header('Location: ' . $_SERVER['PHP_SELF'] . '?s=' . $item['share_code']);
+                exit;
+            }
+        }
+
+        if (file_exists($item['path'])) {
+            // 增加下载计数（F11）
+            incrementDownloadCount($item['id'], getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? '');
+
             header('Content-Type: application/octet-stream');
-            header('Content-Disposition: attachment; filename="' . htmlspecialchars(basename($file['name']), ENT_QUOTES, 'UTF-8') . '"');
-            header('Content-Length: ' . filesize($file['path']));
+            header('Content-Disposition: attachment; filename="' . htmlspecialchars(basename($item['name']), ENT_QUOTES, 'UTF-8') . '"');
+            header('Content-Length: ' . filesize($item['path']));
             header('Cache-Control: must-revalidate');
             header('Pragma: public');
-            readfile($file['path']);
+            readfile($item['path']);
             exit;
         }
     }
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
+}
+
+// ============================================================
+// 分享页面处理（F1）
+// ============================================================
+function handleSharePage() {
+    $code = $_GET['s'] ?? '';
+    if (empty($code)) {
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    }
+
+    $item = getItemByCode($code);
+    if (!$item) {
+        http_response_code(404);
+        define('SHARE_PAGE', true);
+        $shareError = '项目不存在或已过期';
+        require_once __DIR__ . '/../templates/share.php';
+        exit;
+    }
+
+    // 检查是否过期
+    if ($item['expire'] > 0 && $item['expire'] < time()) {
+        http_response_code(410);
+        define('SHARE_PAGE', true);
+        $shareError = '该项目已过期';
+        require_once __DIR__ . '/../templates/share.php';
+        exit;
+    }
+
+    // 检查密码保护（F2）
+    $unlocked = true;
+    if (!empty($item['password'])) {
+        $unlockedKey = 'unlocked_' . $code;
+        if (empty($_SESSION[$unlockedKey])) {
+            $unlocked = false;
+        }
+    }
+
+    define('SHARE_PAGE', true);
+    require_once __DIR__ . '/../templates/share.php';
+    exit;
+}
+
+// ============================================================
+// 分享密码验证（F2）
+// ============================================================
+function handleSharePasswordVerify() {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!validateCSRF()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => '安全验证失败'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $shareCode = $_POST['share_code'] ?? '';
+    $password = $_POST['password'] ?? '';
+
+    $item = getItemByCode($shareCode);
+    if (!$item) {
+        echo json_encode(['success' => false, 'message' => '项目不存在'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (empty($item['password'])) {
+        echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (password_verify($password, $item['password'])) {
+        $_SESSION['unlocked_' . $shareCode] = true;
+        echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
+    } else {
+        echo json_encode(['success' => false, 'message' => '密码错误'], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+// ============================================================
+// 预览处理（F5）
+// ============================================================
+function handlePreview() {
+    $code = $_GET['preview'] ?? '';
+    $item = getItemByCode($code);
+
+    if (!$item || $item['type'] !== 'file') {
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    }
+
+    // 检查密码保护
+    if (!empty($item['password'])) {
+        $unlockedKey = 'unlocked_' . $code;
+        if (empty($_SESSION[$unlockedKey])) {
+            header('Location: ' . $_SERVER['PHP_SELF'] . '?s=' . $code);
+            exit;
+        }
+    }
+
+    // 检查文件是否存在
+    if (empty($item['path']) || !file_exists($item['path'])) {
+        http_response_code(404);
+        echo '文件不存在';
+        exit;
+    }
+
+    // 增加查看计数
+    incrementDownloadCount($item['id'], getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? '');
+
+    // 根据文件类型决定预览方式
+    $ext = strtolower(pathinfo($item['name'], PATHINFO_EXTENSION));
+    $mimeType = $item['mime_type'] ?: 'application/octet-stream';
+
+    $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico'];
+    $videoExts = ['mp4', 'webm', 'ogv', 'ogg'];
+    $audioExts = ['mp3', 'wav', 'aac', 'flac', 'm4a', 'opus'];
+    $pdfExts = ['pdf'];
+
+    if (in_array($ext, $imageExts)) {
+        // 图片：直接输出
+        header('Content-Type: ' . $mimeType);
+        header('Content-Length: ' . filesize($item['path']));
+        readfile($item['path']);
+        exit;
+    } elseif (in_array($ext, $videoExts)) {
+        // 视频：流式输出（支持 Range 请求）
+        streamFile($item['path'], $mimeType);
+        exit;
+    } elseif (in_array($ext, $audioExts)) {
+        // 音频：流式输出
+        streamFile($item['path'], $mimeType);
+        exit;
+    } elseif (in_array($ext, $pdfExts)) {
+        // PDF：内联显示
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="' . htmlspecialchars(basename($item['name']), ENT_QUOTES, 'UTF-8') . '"');
+        header('Content-Length: ' . filesize($item['path']));
+        readfile($item['path']);
+        exit;
+    }
+
+    // 其他类型不支持在线预览
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+/**
+ * 流式输出文件（支持 Range 请求，用于视频/音频）
+ */
+function streamFile($path, $mimeType) {
+    $size = filesize($path);
+    $start = 0;
+    $end = $size - 1;
+
+    header('Content-Type: ' . $mimeType);
+    header('Accept-Ranges: bytes');
+
+    if (isset($_SERVER['HTTP_RANGE'])) {
+        $range = $_SERVER['HTTP_RANGE'];
+        $range = str_replace('bytes=', '', $range);
+        list($start, $end) = explode('-', $range);
+        $start = intval($start);
+        $end = empty($end) ? $size - 1 : intval($end);
+        header('HTTP/1.1 206 Partial Content');
+        header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
+    }
+
+    header('Content-Length: ' . ($end - $start + 1));
+    header('Content-Disposition: inline');
+
+    $fp = fopen($path, 'rb');
+    fseek($fp, $start);
+    $remaining = $end - $start + 1;
+    $bufferSize = 8192;
+    while ($remaining > 0 && !feof($fp)) {
+        $read = min($bufferSize, $remaining);
+        echo fread($fp, $read);
+        $remaining -= $read;
+        flush();
+    }
+    fclose($fp);
+}
+
+// ============================================================
+// 搜索处理（F6）
+// ============================================================
+function handleSearch() {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $query = $_GET['q'] ?? '';
+    $typeFilter = $_GET['type'] ?? 'all';
+    $categoryFilter = $_GET['category'] ?? '';
+    $sort = $_GET['sort'] ?? 'time';
+    $sortOrder = $_GET['order'] ?? 'desc';
+
+    $items = searchItems($query, $typeFilter, $categoryFilter, $sort, $sortOrder);
+
+    // 格式化输出
+    $result = [];
+    foreach ($items as $item) {
+        $result[] = [
+            'id' => $item['id'],
+            'share_code' => $item['share_code'],
+            'type' => $item['type'],
+            'name' => $item['name'],
+            'size' => $item['size'],
+            'size_formatted' => formatSize($item['size']),
+            'time' => $item['time'],
+            'time_formatted' => date('Y-m-d H:i', $item['time']),
+            'expire' => $item['expire'],
+            'expire_formatted' => formatExpire($item['expire']),
+            'download_count' => $item['download_count'],
+            'has_password' => !empty($item['password']),
+            'content_preview' => $item['type'] === 'text' ? mb_substr($item['content'] ?? '', 0, 150) : null,
+        ];
+    }
+
+    echo json_encode(['success' => true, 'items' => $result], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ============================================================
+// 辅助函数
+// ============================================================
+
+/**
+ * 获取站点基础 URL
+ */
+function getBaseUrl() {
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $path = dirname($_SERVER['SCRIPT_NAME']);
+    return $protocol . '://' . $host . ($path === '/' ? '' : $path);
 }

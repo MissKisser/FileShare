@@ -1,0 +1,254 @@
+/* ============================================================
+   管理后台样式
+   ============================================================ */
+
+.admin-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* 侧边栏 */
+.admin-sidebar {
+    width: 220px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+}
+
+.admin-logo {
+    padding: 0 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 16px;
+}
+
+.admin-logo h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.admin-nav {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+}
+
+.admin-nav li a {
+    display: block;
+    padding: 10px 20px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+}
+
+.admin-nav li a:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.admin-nav li a.active {
+    background: var(--bg-tertiary);
+    color: var(--accent-blue);
+    border-left-color: var(--accent-blue);
+    font-weight: 500;
+}
+
+.admin-nav-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.admin-nav-footer a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color 0.2s;
+}
+
+.admin-nav-footer a:hover {
+    color: var(--text-primary);
+}
+
+/* 主内容区 */
+.admin-main {
+    margin-left: 220px;
+    padding: 32px;
+    flex: 1;
+    min-width: 0;
+}
+
+.admin-main h1 {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 24px;
+}
+
+.admin-main h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 24px 0 12px;
+}
+
+/* 统计卡片网格 */
+.admin-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.admin-stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 20px;
+}
+
+.admin-stat-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.admin-stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* 搜索表单 */
+.admin-search-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.admin-search-form input,
+.admin-search-form select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.admin-search-form input {
+    flex: 1;
+    max-width: 300px;
+}
+
+/* 消息提示 */
+.admin-message {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.admin-message.success {
+    background: var(--accent-green-light);
+    color: var(--accent-green);
+    border: 1px solid var(--accent-green);
+}
+
+/* 设置表单 */
+.admin-settings-form {
+    max-width: 600px;
+}
+
+.admin-setting-row {
+    margin-bottom: 16px;
+}
+
+.admin-setting-row label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.admin-setting-row input,
+.admin-setting-row textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.admin-setting-row textarea {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .admin-sidebar {
+        width: 100%;
+        position: relative;
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 12px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .admin-logo {
+        padding: 0 12px 0 0;
+        border-bottom: none;
+        margin-bottom: 0;
+        border-right: 1px solid var(--border-color);
+    }
+
+    .admin-nav {
+        display: flex;
+        flex-wrap: wrap;
+    }
+
+    .admin-nav li a {
+        padding: 6px 12px;
+        border-left: none;
+        border-bottom: 2px solid transparent;
+    }
+
+    .admin-nav li a.active {
+        border-left-color: transparent;
+        border-bottom-color: var(--accent-blue);
+    }
+
+    .admin-nav-footer {
+        border-top: none;
+        flex-direction: row;
+        padding: 0 12px;
+    }
+
+    .admin-main {
+        margin-left: 0;
+        padding: 16px;
+    }
+
+    .admin-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

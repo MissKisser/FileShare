@@ -998,3 +998,259 @@ input[type="file"]::file-selector-button:hover {
         min-height: 140px;
     }
 }
+
+/* ========================================
+   搜索与过滤栏（F6）
+   ======================================== */
+.search-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+.search-input {
+    flex: 1;
+    min-width: 180px;
+    padding: 8px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font-size: 14px;
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.search-input:focus {
+    border-color: var(--accent-blue);
+}
+
+.filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.filter-tag {
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 20px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.filter-tag:hover {
+    background: var(--btn-secondary-hover);
+    color: var(--text-primary);
+}
+
+.filter-tag.active {
+    background: var(--accent-blue-light);
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+
+.sort-select select {
+    padding: 6px 10px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+}
+
+/* ========================================
+   批量操作栏（F7）
+   ======================================== */
+.batch-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.batch-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.batch-select-all input {
+    cursor: pointer;
+}
+
+.batch-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* 列表项复选框 */
+.item-select {
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+}
+
+.item-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent-blue);
+}
+
+/* ========================================
+   分享按钮样式（F1）
+   ======================================== */
+.btn-share {
+    color: var(--accent-blue) !important;
+}
+
+.btn-share:hover {
+    background: var(--accent-blue-light) !important;
+}
+
+.btn-preview {
+    color: var(--accent-amber) !important;
+}
+
+.btn-preview:hover {
+    background: var(--accent-amber-light, #FEF3C7) !important;
+}
+
+/* 锁图标 */
+.icon-lock {
+    opacity: 0.5;
+}
+
+/* ========================================
+   统计面板（F8）
+   ======================================== */
+.stats-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.stats-panel h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.stats-charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.stats-chart-container {
+    text-align: center;
+}
+
+.stats-chart-container canvas {
+    max-width: 100%;
+}
+
+.disk-usage-bar {
+    margin-bottom: 16px;
+}
+
+.disk-usage-bar .progress-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.disk-usage-bar .progress-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent-blue);
+    transition: width 0.5s ease;
+}
+
+.disk-usage-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+}
+
+/* ========================================
+   上传成功后的分享链接区域
+   ======================================== */
+.success-share-links {
+    margin: 12px 0;
+    text-align: left;
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.success-share-links a {
+    color: var(--accent-blue);
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.success-share-links a:hover {
+    text-decoration: underline;
+}
+
+/* ========================================
+   响应式补充
+   ======================================== */
+@media (max-width: 768px) {
+    .search-filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-tags {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 4px;
+    }
+
+    .batch-actions-bar {
+        flex-wrap: wrap;
+    }
+
+    .stats-charts {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .item-select {
+        padding-right: 4px;
+    }
+
+    .item-checkbox {
+        width: 14px;
+        height: 14px;
+    }
+}

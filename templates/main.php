@@ -8,7 +8,7 @@
     <meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <title>文件上传与文本存储系统</title>
+    <title><?php echo htmlspecialchars(SITE_TITLE); ?></title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -100,6 +100,7 @@
             </div>
             <div class="success-title">传输完成</div>
             <div id="successMessage" class="success-message"></div>
+            <div id="successShareLinks" class="success-share-links"></div>
             <div class="success-actions">
                 <button type="button" id="viewFilesBtn" class="btn-view-files">刷新列表</button>
                 <button type="button" id="continueUploadBtn" class="btn-continue-upload">继续</button>
@@ -122,11 +123,31 @@
         </div>
     </div>
 
+    <!-- 分享弹窗（F1+F14） -->
+    <div id="shareModal" class="code-modal-overlay">
+        <div class="code-modal" style="max-width:480px">
+            <div class="code-modal-header">
+                <div class="code-modal-title">分享链接</div>
+                <div class="code-modal-actions">
+                    <button type="button" id="shareModalClose" class="code-modal-btn">关闭</button>
+                </div>
+            </div>
+            <div class="code-modal-body" style="padding:24px;text-align:center">
+                <div id="shareLinkContainer" style="margin-bottom:16px">
+                    <input type="text" id="shareLinkInput" readonly style="width:100%;padding:10px 14px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-family:JetBrains Mono,monospace;font-size:13px;box-sizing:border-box">
+                    <button type="button" id="shareLinkCopy" class="btn btn-primary" style="margin-top:8px;width:100%">复制链接</button>
+                </div>
+                <div id="shareQrContainer" style="margin-top:16px">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 主内容区 -->
     <main class="main-content">
         <!-- 页面标题 -->
         <header class="page-header">
-            <h1>文件暂存</h1>
+            <h1><?php echo htmlspecialchars(SITE_TITLE); ?></h1>
             <p>轻量级文件上传与文本存储系统</p>
         </header>
 
@@ -134,15 +155,19 @@
         <div class="stats-bar">
             <div class="stat-card">
                 <div class="stat-label">文件存储</div>
-                <div class="stat-value"><?php echo count(array_filter($data, function($i) { return $i['type'] === 'file'; })); ?></div>
+                <div class="stat-value"><?php echo $stats['file_count']; ?></div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">文本片段</div>
-                <div class="stat-value"><?php echo count(array_filter($data, function($i) { return $i['type'] === 'text'; })); ?></div>
+                <div class="stat-value"><?php echo $stats['text_count']; ?></div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">总项目数</div>
-                <div class="stat-value"><?php echo count($data); ?></div>
+                <div class="stat-value"><?php echo $stats['total_items']; ?></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">磁盘占用</div>
+                <div class="stat-value"><?php echo formatSize($stats['disk_usage']); ?></div>
             </div>
         </div>
 
@@ -182,6 +207,10 @@
                             <option value="86400">1天</option>
                             <option value="0">无限制</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label>访问密码（可选，留空则公开）</label>
+                        <input type="password" name="access_password" id="uploadAccessPassword" placeholder="设置密码保护" autocomplete="new-password">
                     </div>
                     <div id="selectedFilesContainer" class="selected-files-container" style="display: none;">
                         <div class="selected-files-header">
@@ -230,6 +259,10 @@
                             <option value="0">无限制</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label>访问密码（可选，留空则公开）</label>
+                        <input type="password" name="access_password" placeholder="设置密码保护" autocomplete="new-password">
+                    </div>
                     <button type="submit" class="btn btn-success">持久化文本</button>
                 </form>
             </div>
@@ -243,14 +276,59 @@
                     </svg>
                     存储概览
                 </h2>
-                <div class="list">
+
+                <!-- 搜索与过滤栏（F6） -->
+                <div class="search-filter-bar">
+                    <input type="text" id="searchInput" class="search-input" placeholder="搜索文件名或文本内容...">
+                    <div class="filter-tags">
+                        <button class="filter-tag active" data-filter="all">全部</button>
+                        <button class="filter-tag" data-filter="file">文件</button>
+                        <button class="filter-tag" data-filter="text">文本</button>
+                        <button class="filter-tag" data-filter="image">图片</button>
+                        <button class="filter-tag" data-filter="video">视频</button>
+                        <button class="filter-tag" data-filter="audio">音频</button>
+                        <button class="filter-tag" data-filter="doc">文档</button>
+                        <button class="filter-tag" data-filter="code">代码</button>
+                        <button class="filter-tag" data-filter="archive">压缩包</button>
+                    </div>
+                    <div class="sort-select">
+                        <select id="sortSelect">
+                            <option value="time-desc">时间 ↓</option>
+                            <option value="time-asc">时间 ↑</option>
+                            <option value="size-desc">大小 ↓</option>
+                            <option value="size-asc">大小 ↑</option>
+                            <option value="name-asc">名称 A-Z</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 批量操作栏（F7） -->
+                <div class="batch-actions-bar" id="batchActionsBar" style="display:none">
+                    <label class="batch-select-all">
+                        <input type="checkbox" id="selectAllCheckbox"> 全选
+                    </label>
+                    <button type="button" class="btn-small btn-danger" id="batchDeleteBtn">批量删除</button>
+                    <button type="button" class="btn-small btn-secondary" id="batchCopyLinksBtn">复制链接</button>
+                    <span class="batch-count" id="batchCount">已选 0 项</span>
+                </div>
+
+                <div class="list" id="storageList">
                     <?php if (empty($data)): ?>
                         <div class="empty">云端无挂载数据</div>
                     <?php else: ?>
-                        <?php foreach ($data as $index => $item): ?>
-                            <div class="item">
+                        <?php foreach ($data as $item): ?>
+                            <div class="item" data-id="<?php echo $item['id']; ?>" data-share-code="<?php echo $item['share_code']; ?>" data-type="<?php echo $item['type']; ?>">
+                                <div class="item-select">
+                                    <input type="checkbox" class="item-checkbox" data-id="<?php echo $item['id']; ?>">
+                                </div>
                                 <div class="item-info">
                                     <div class="item-name">
+                                        <?php if (!empty($item['password'])): ?>
+                                            <svg class="icon-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;opacity:0.5">
+                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                            </svg>
+                                        <?php endif; ?>
                                         <?php if ($item['type'] === 'file'): ?>
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
@@ -273,24 +351,38 @@
                                         <?php endif; ?>
                                         入库: <?php echo date('Y-m-d H:i', $item['time']); ?> •
                                         剩余: <?php echo formatExpire($item['expire']); ?>
-                                        <?php if (isset($item['ip'])): ?>
-                                            • <?php echo htmlspecialchars($item['ip']); ?>
+                                        <?php if (!empty($item['download_count'])): ?>
+                                            • <span title="下载/查看次数">↓<?php echo $item['download_count']; ?></span>
                                         <?php endif; ?>
                                     </div>
                                     <?php if ($item['type'] === 'text'): ?>
                                         <div class="text-preview">
-                                            <pre><?php echo htmlspecialchars(mb_substr($item['content'], 0, 150)); ?><?php if (mb_strlen($item['content']) > 150) echo '...'; ?></pre>
+                                            <pre><?php echo htmlspecialchars(mb_substr($item['content'] ?? '', 0, 150)); ?><?php if (mb_strlen($item['content'] ?? '') > 150) echo '...'; ?></pre>
                                         </div>
                                     <?php endif; ?>
                                 </div>
                                 <div class="item-actions">
                                     <?php if ($item['type'] === 'file'): ?>
-                                        <a href="?download=<?php echo $index; ?>" class="btn-small btn-secondary">拉取</a>
+                                        <a href="?download=<?php echo $item['id']; ?>" class="btn-small btn-secondary">拉取</a>
+                                        <?php
+                                            // 判断是否可预览
+                                            $ext = strtolower(pathinfo($item['name'] ?? '', PATHINFO_EXTENSION));
+                                            $previewableExts = array_merge(
+                                                ['jpg','jpeg','png','gif','webp','bmp','svg','ico'],
+                                                ['mp4','webm','ogv','ogg'],
+                                                ['mp3','wav','aac','flac','m4a','opus'],
+                                                ['pdf','md','markdown']
+                                            );
+                                            if (in_array($ext, $previewableExts)):
+                                        ?>
+                                            <button class="btn-small btn-secondary btn-preview" data-share-code="<?php echo $item['share_code']; ?>">预览</button>
+                                        <?php endif; ?>
                                     <?php else: ?>
-                                        <button class="btn-small btn-secondary btn-view" data-index="<?php echo $index; ?>" data-content="<?php echo htmlspecialchars($item['content'], ENT_QUOTES, 'UTF-8'); ?>">展开</button>
-                                        <button class="btn-small btn-secondary btn-copy" data-content="<?php echo htmlspecialchars($item['content'], ENT_QUOTES, 'UTF-8'); ?>">复制</button>
+                                        <button class="btn-small btn-secondary btn-view" data-id="<?php echo $item['id']; ?>" data-content="<?php echo htmlspecialchars($item['content'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">展开</button>
+                                        <button class="btn-small btn-secondary btn-copy" data-content="<?php echo htmlspecialchars($item['content'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">复制</button>
                                     <?php endif; ?>
-                                    <button class="btn-small btn-danger btn-delete" data-index="<?php echo $index; ?>">移除</button>
+                                    <button class="btn-small btn-secondary btn-share" data-share-code="<?php echo $item['share_code']; ?>">分享</button>
+                                    <button class="btn-small btn-danger btn-delete" data-id="<?php echo $item['id']; ?>">移除</button>
                                 </div>
                             </div>
                         <?php endforeach; ?>
@@ -353,6 +445,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    <!-- 二维码生成库（F14） -->
+    <script src="assets/js/qrcode.min.js?v=<?php echo time(); ?>"></script>
+    <!-- 统计图表库（F8） -->
+    <script src="assets/js/charts.js?v=<?php echo time(); ?>"></script>
     <script src="assets/js/upload.js?v=<?php echo time(); ?>"></script>
     <script>
         // 主题切换功能
@@ -374,6 +470,10 @@
                 localStorage.setItem('theme', newTheme);
             });
         })();
+
+        // 站点配置
+        window.FILESHARE_BASE_URL = '<?php echo getBaseUrl(); ?>';
+        window.FILESHARE_CSRF = '<?php echo $_SESSION['csrf_token']; ?>';
     </script>
 </body>
 </html>

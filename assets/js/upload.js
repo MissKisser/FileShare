@@ -1414,26 +1414,24 @@ document.addEventListener('DOMContentLoaded', function() {
             const delBtn = e.target.closest('.btn-delete');
             if (!delBtn) return;
             e.preventDefault();
-            const index = delBtn.getAttribute('data-index');
+            const itemId = delBtn.getAttribute('data-id');
+            if (!itemId) return;
             showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = window.location.pathname;
+                const formData = new FormData();
+                formData.append('delete', itemId);
+                formData.append('csrf_token', window.FILESHARE_CSRF || document.querySelector('input[name="csrf_token"]')?.value || '');
 
-                const csrfField = document.createElement('input');
-                csrfField.type = 'hidden';
-                csrfField.name = 'csrf_token';
-                csrfField.value = window.csrfToken || document.querySelector('input[name="csrf_token"]')?.value || '';
-                form.appendChild(csrfField);
-
-                const deleteField = document.createElement('input');
-                deleteField.type = 'hidden';
-                deleteField.name = 'delete';
-                deleteField.value = index;
-                form.appendChild(deleteField);
-
-                document.body.appendChild(form);
-                form.submit();
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function() {
+                    refreshStorageList();
+                    showToast('删除成功', 'success');
+                })
+                .catch(function() {
+                    showToast('删除失败', 'error');
+                });
             });
         });
     }
@@ -1773,4 +1771,491 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     };
+
+    // ========================================
+    // 搜索与过滤（F6）
+    // ========================================
+    const searchInput = document.getElementById('searchInput');
+    const filterTags = document.querySelectorAll('.filter-tag');
+    const sortSelect = document.getElementById('sortSelect');
+    let searchDebounceTimer = null;
+    let currentFilter = 'all';
+    let currentSort = 'time';
+    let currentSortOrder = 'desc';
+
+    function performSearch() {
+        const query = searchInput ? searchInput.value.trim() : '';
+        const [sort, order] = sortSelect ? sortSelect.value.split('-') : ['time', 'desc'];
+
+        const params = new URLSearchParams({
+            action: 'search',
+            q: query,
+            type: currentFilter === 'file' || currentFilter === 'text' ? currentFilter : 'all',
+            category: !['all', 'file', 'text'].includes(currentFilter) ? currentFilter : '',
+            sort: sort || 'time',
+            order: order || 'desc'
+        });
+
+        fetch(window.location.pathname + '?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    renderSearchResults(data.items);
+                }
+            })
+            .catch(function(err) {
+                console.error('搜索失败:', err);
+            });
+    }
+
+    function renderSearchResults(items) {
+        const listEl = document.getElementById('storageList');
+        if (!listEl) return;
+
+        if (items.length === 0) {
+            listEl.innerHTML = '<div class="empty">没有找到匹配的项目</div>';
+            return;
+        }
+
+        let html = '';
+        items.forEach(function(item) {
+            const lockIcon = item.has_password
+                ? '<svg class="icon-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;opacity:0.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
+                : '';
+
+            const downloadCount = item.download_count > 0
+                ? ' • <span title="下载/查看次数">↓' + item.download_count + '</span>'
+                : '';
+
+            if (item.type === 'file') {
+                html += '<div class="item" data-id="' + item.id + '" data-share-code="' + item.share_code + '" data-type="file">' +
+                    '<div class="item-select"><input type="checkbox" class="item-checkbox" data-id="' + item.id + '"></div>' +
+                    '<div class="item-info">' +
+                    '<div class="item-name">' + lockIcon +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>' +
+                    escapeHtml(item.name || '') + '</div>' +
+                    '<div class="item-meta">' + item.size_formatted + ' • 入库: ' + item.time_formatted + ' • 剩余: ' + item.expire_formatted + downloadCount + '</div>' +
+                    '</div>' +
+                    '<div class="item-actions">' +
+                    '<a href="?download=' + item.id + '" class="btn-small btn-secondary">拉取</a>' +
+                    '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
+                    '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
+                    '</div></div>';
+            } else {
+                const preview = item.content_preview ? escapeHtml(item.content_preview) : '';
+                html += '<div class="item" data-id="' + item.id + '" data-share-code="' + item.share_code + '" data-type="text">' +
+                    '<div class="item-select"><input type="checkbox" class="item-checkbox" data-id="' + item.id + '"></div>' +
+                    '<div class="item-info">' +
+                    '<div class="item-name">' + lockIcon +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' +
+                    '文本片段</div>' +
+                    '<div class="item-meta">入库: ' + item.time_formatted + ' • 剩余: ' + item.expire_formatted + downloadCount + '</div>' +
+                    (preview ? '<div class="text-preview"><pre>' + preview + '...</pre></div>' : '') +
+                    '</div>' +
+                    '<div class="item-actions">' +
+                    '<button class="btn-small btn-secondary btn-view" data-id="' + item.id + '" data-content="' + escapeAttr(item.content_preview || '') + '">展开</button>' +
+                    '<button class="btn-small btn-secondary btn-copy" data-content="' + escapeAttr(item.content_preview || '') + '">复制</button>' +
+                    '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
+                    '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
+                    '</div></div>';
+            }
+        });
+
+        listEl.innerHTML = html;
+        bindListButtonEvents();
+        updateBatchState();
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+        return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 搜索输入防抖
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(performSearch, 300);
+        });
+    }
+
+    // 过滤标签点击
+    filterTags.forEach(function(tag) {
+        tag.addEventListener('click', function() {
+            filterTags.forEach(function(t) { t.classList.remove('active'); });
+            tag.classList.add('active');
+            currentFilter = tag.getAttribute('data-filter');
+            performSearch();
+        });
+    });
+
+    // 排序选择
+    if (sortSelect) {
+        sortSelect.addEventListener('change', performSearch);
+    }
+
+    // ========================================
+    // 批量操作（F7）
+    // ========================================
+    const batchActionsBar = document.getElementById('batchActionsBar');
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+    const batchCopyLinksBtn = document.getElementById('batchCopyLinksBtn');
+    const batchCountEl = document.getElementById('batchCount');
+
+    function updateBatchState() {
+        const checkboxes = document.querySelectorAll('.item-checkbox');
+        const checked = document.querySelectorAll('.item-checkbox:checked');
+
+        if (batchActionsBar) {
+            batchActionsBar.style.display = checkboxes.length > 0 ? 'flex' : 'none';
+        }
+
+        if (batchCountEl) {
+            batchCountEl.textContent = '已选 ' + checked.length + ' 项';
+        }
+
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+            selectAllCheckbox.indeterminate = checked.length > 0 && checked.length < checkboxes.length;
+        }
+    }
+
+    // 事件委托：复选框变化
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('item-checkbox')) {
+            updateBatchState();
+        }
+    });
+
+    // 全选
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.item-checkbox');
+            checkboxes.forEach(function(cb) { cb.checked = selectAllCheckbox.checked; });
+            updateBatchState();
+        });
+    }
+
+    // 批量删除
+    if (batchDeleteBtn) {
+        batchDeleteBtn.addEventListener('click', function() {
+            const checked = document.querySelectorAll('.item-checkbox:checked');
+            if (checked.length === 0) return;
+
+            const ids = [];
+            checked.forEach(function(cb) { ids.push(cb.getAttribute('data-id')); });
+
+            window.showCyberConfirm('确认删除选中的 ' + ids.length + ' 个项目？', function() {
+                const formData = new FormData();
+                formData.append('action', 'batch_delete');
+                formData.append('csrf_token', window.FILESHARE_CSRF);
+                ids.forEach(function(id) { formData.append('ids[]', id); });
+
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        showToast('成功删除 ' + data.deleted + ' 个项目', 'success');
+                        refreshStorageList();
+                    } else {
+                        showToast(data.message || '删除失败', 'error');
+                    }
+                })
+                .catch(function() {
+                    showToast('删除请求失败', 'error');
+                });
+            });
+        });
+    }
+
+    // 批量复制链接
+    if (batchCopyLinksBtn) {
+        batchCopyLinksBtn.addEventListener('click', function() {
+            const checked = document.querySelectorAll('.item-checkbox:checked');
+            if (checked.length === 0) return;
+
+            const links = [];
+            checked.forEach(function(cb) {
+                const item = cb.closest('.item');
+                if (item) {
+                    const code = item.getAttribute('data-share-code');
+                    if (code) {
+                        links.push(window.FILESHARE_BASE_URL + '?s=' + code);
+                    }
+                }
+            });
+
+            if (links.length > 0) {
+                copyToClipboard(links.join('\n'), function() {
+                    showToast('已复制 ' + links.length + ' 个分享链接', 'success');
+                });
+            }
+        });
+    }
+
+    // 初始化批量操作栏状态
+    updateBatchState();
+
+    // ========================================
+    // 分享弹窗（F1 + F14）
+    // ========================================
+    const shareModal = document.getElementById('shareModal');
+    const shareModalClose = document.getElementById('shareModalClose');
+    const shareLinkInput = document.getElementById('shareLinkInput');
+    const shareLinkCopyBtn = document.getElementById('shareLinkCopyBtn');
+    const shareQrContainer = document.getElementById('shareQrContainer');
+
+    function openShareModal(shareCode) {
+        if (!shareModal || !shareCode) return;
+
+        const shareUrl = window.FILESHARE_BASE_URL + '?s=' + shareCode;
+        if (shareLinkInput) shareLinkInput.value = shareUrl;
+
+        // 生成二维码
+        if (shareQrContainer && typeof QRCode !== 'undefined') {
+            shareQrContainer.innerHTML = '';
+            var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            new QRCode(shareQrContainer, {
+                text: shareUrl,
+                width: 200,
+                height: 200,
+                colorDark: isDark ? '#F1F5F9' : '#111827',
+                colorLight: isDark ? '#1E293B' : '#FFFFFF',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+
+        shareModal.classList.add('active');
+    }
+
+    function closeShareModal() {
+        if (shareModal) shareModal.classList.remove('active');
+    }
+
+    if (shareModalClose) {
+        shareModalClose.addEventListener('click', closeShareModal);
+    }
+
+    if (shareModal) {
+        shareModal.addEventListener('click', function(e) {
+            if (e.target === shareModal) closeShareModal();
+        });
+    }
+
+    if (shareLinkCopyBtn) {
+        shareLinkCopyBtn.addEventListener('click', function() {
+            if (shareLinkInput) {
+                copyToClipboard(shareLinkInput.value, function() {
+                    shareLinkCopyBtn.textContent = '已复制';
+                    setTimeout(function() { shareLinkCopyBtn.textContent = '复制'; }, 2000);
+                });
+            }
+        });
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && shareModal && shareModal.classList.contains('active')) {
+            closeShareModal();
+        }
+    });
+
+    // ========================================
+    // 预览按钮（F5）
+    // ========================================
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.btn-preview');
+        if (btn) {
+            var shareCode = btn.getAttribute('data-share-code');
+            if (shareCode) {
+                window.open('?preview=' + shareCode, '_blank');
+            }
+        }
+    });
+
+    // ========================================
+    // 扩展 bindListButtonEvents 增加分享和预览
+    // ========================================
+    var origBind = window._origBindListButtonEvents || bindListButtonEvents;
+    bindListButtonEvents = function() {
+        origBind();
+
+        // 分享按钮
+        document.querySelectorAll('.btn-share').forEach(function(btn) {
+            btn.removeEventListener('click', handleShareClick);
+            btn.addEventListener('click', handleShareClick);
+        });
+    };
+
+    function handleShareClick(e) {
+        var btn = e.target.closest('.btn-share');
+        if (btn) {
+            var shareCode = btn.getAttribute('data-share-code');
+            if (shareCode) {
+                openShareModal(shareCode);
+            }
+        }
+    }
+
+    // ========================================
+    // 重新绑定列表按钮（因为 bindListButtonEvents 被覆盖了）
+    // ========================================
+    bindListButtonEvents();
+
+    // ========================================
+    // 上传成功后显示分享链接
+    // ========================================
+    var origRefreshStorageList = refreshStorageList;
+    // 上传响应处理已在 uploadFiles 的 xhr.onload 中
+    // 此处补充：显示上传成功项的分享链接
+    window.showUploadShareLinks = function(items) {
+        var container = document.getElementById('successShareLinks');
+        if (!container || !items || items.length === 0) return;
+
+        var html = '<div style="text-align:left;font-size:12px;color:var(--text-secondary);margin-top:8px">';
+        items.forEach(function(item) {
+            html += '<div style="margin:4px 0"><a href="' + item.share_url + '" target="_blank" style="color:var(--accent-blue);word-break:break-all">' + escapeHtml(item.name || '文本片段') + '</a></div>';
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    };
+
+    // ========================================
+    // 删除改为 AJAX 方式（不刷新页面）
+    // ========================================
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.btn-delete');
+        if (btn && !btn._deleteBound) {
+            btn._deleteBound = true;
+            e.preventDefault();
+            e.stopPropagation();
+
+            var id = btn.getAttribute('data-id');
+            if (!id) return;
+
+            window.showCyberConfirm('确认删除此项目？', function() {
+                var formData = new FormData();
+                formData.append('delete', id);
+                formData.append('csrf_token', window.FILESHARE_CSRF);
+
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function() {
+                    // 刷新列表
+                    refreshStorageList();
+                    showToast('删除成功', 'success');
+                })
+                .catch(function() {
+                    showToast('删除失败', 'error');
+                });
+            });
+
+            btn._deleteBound = false;
+        }
+    });
+
+    // ========================================
+    // 统计面板（F8）— 按需加载
+    // ========================================
+    window.loadStatsPanel = function() {
+        var statsBar = document.querySelector('.stats-bar');
+        if (!statsBar || statsBar._panelLoaded) return;
+        statsBar._panelLoaded = true;
+
+        statsBar.style.cursor = 'pointer';
+        statsBar.title = '点击查看详细统计';
+
+        statsBar.addEventListener('click', function() {
+            var panel = document.querySelector('.stats-panel');
+            if (panel) {
+                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                return;
+            }
+
+            // 创建统计面板
+            panel = document.createElement('div');
+            panel.className = 'stats-panel';
+            panel.innerHTML = '<h3>存储统计</h3>' +
+                '<div class="disk-usage-bar"><div class="progress-track"><div class="progress-bar-fill" id="diskUsageBar" style="width:0%"></div></div>' +
+                '<div class="disk-usage-label"><span id="diskUsed">计算中...</span><span id="diskTotal"></span></div></div>' +
+                '<div class="stats-charts">' +
+                '<div class="stats-chart-container"><h4>类型分布</h4><canvas id="pieChart" width="350" height="250"></canvas></div>' +
+                '<div class="stats-chart-container"><h4>近7日上传</h4><canvas id="barChart" width="350" height="250"></canvas></div>' +
+                '</div>';
+
+            statsBar.parentNode.insertBefore(panel, statsBar.nextSibling);
+
+            // 加载统计数据
+            fetch(window.location.pathname + '?api=stats', {
+                headers: { 'Authorization': 'Bearer ' + (window._apiToken || '') }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) return;
+                var stats = data.stats;
+
+                // 磁盘使用进度条
+                var diskBar = document.getElementById('diskUsageBar');
+                var diskUsed = document.getElementById('diskUsed');
+                if (diskBar && diskUsed) {
+                    diskUsed.textContent = '已用: ' + stats.disk_usage_formatted;
+                    // 假设上限 5GB
+                    var maxBytes = 5 * 1024 * 1024 * 1024;
+                    var pct = Math.min(100, (stats.disk_usage / maxBytes) * 100);
+                    diskBar.style.width = pct.toFixed(1) + '%';
+                    if (pct > 80) diskBar.style.background = 'var(--accent-red)';
+                    else if (pct > 60) diskBar.style.background = 'var(--accent-amber)';
+                }
+
+                // 饼图
+                if (typeof FileShareCharts !== 'undefined') {
+                    var pieCanvas = document.getElementById('pieChart');
+                    if (pieCanvas) {
+                        var pieData = [];
+                        var cats = stats.category_sizes || {};
+                        for (var cat in cats) {
+                            if (cats[cat] > 0) {
+                                pieData.push({
+                                    label: FileShareCharts.categoryLabels[cat] || cat,
+                                    value: cats[cat],
+                                    color: FileShareCharts.categoryColors[cat] || '#9CA3AF'
+                                });
+                            }
+                        }
+                        // 添加文本大小
+                        var textStmt = stats.total_size - Object.values(cats).reduce(function(a, b) { return a + b; }, 0);
+                        if (textStmt > 0) {
+                            pieData.push({ label: '文本', value: textStmt, color: '#EC4899' });
+                        }
+                        FileShareCharts.drawPieChart(pieCanvas, pieData);
+                    }
+
+                    // 柱状图
+                    var barCanvas = document.getElementById('barChart');
+                    if (barCanvas && stats.daily_uploads) {
+                        var barData = stats.daily_uploads.map(function(d) {
+                            return { label: d.day.substring(5), value: d.cnt };
+                        });
+                        FileShareCharts.drawBarChart(barCanvas, barData);
+                    }
+                }
+            })
+            .catch(function(err) {
+                console.error('加载统计失败:', err);
+            });
+        });
+    };
+
+    loadStatsPanel();
+
 });

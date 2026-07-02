@@ -7,7 +7,6 @@ if (empty($_SESSION['initialized'])) {
     $_SESSION['initialized'] = true;
 }
 
-
 // 生成CSRF Token
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -17,8 +16,21 @@ if (empty($_SESSION['csrf_token'])) {
 define('ACCESS_ALLOWED', true);
 
 require_once __DIR__ . '/src/config.php';
+require_once __DIR__ . '/src/database.php';
 require_once __DIR__ . '/src/functions.php';
 require_once __DIR__ . '/src/handlers.php';
+
+// 检查是否需要从 JSON 迁移
+if (needsMigration()) {
+    require_once __DIR__ . '/src/migrate.php';
+    runMigration();
+}
+
+// IP 黑名单检查
+if (isIPBlacklisted(getRealIP())) {
+    http_response_code(403);
+    exit('Access Denied');
+}
 
 handleRequest();
 
@@ -30,5 +42,8 @@ unset($_SESSION['message']);
 
 // 获取最近上传日志
 $uploadLogs = getUploadLogs(10);
+
+// 获取存储统计
+$stats = getStorageStats();
 
 require_once __DIR__ . '/templates/main.php';
