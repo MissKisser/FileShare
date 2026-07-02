@@ -20,14 +20,14 @@
                 <h2>管理后台</h2>
             </div>
             <ul class="admin-nav">
-                <li><a href="?admin=dashboard" class="<?php echo $adminPage === 'dashboard' ? 'active' : ''; ?>">仪表盘</a></li>
-                <li><a href="?admin=items" class="<?php echo $adminPage === 'items' ? 'active' : ''; ?>">内容管理</a></li>
-                <li><a href="?admin=logs" class="<?php echo $adminPage === 'logs' ? 'active' : ''; ?>">日志审计</a></li>
-                <li><a href="?admin=settings" class="<?php echo $adminPage === 'settings' ? 'active' : ''; ?>">系统设置</a></li>
+                <li><a href="/admin/dashboard" class="<?php echo $adminPage === 'dashboard' ? 'active' : ''; ?>">仪表盘</a></li>
+                <li><a href="/admin/items" class="<?php echo $adminPage === 'items' ? 'active' : ''; ?>">内容管理</a></li>
+                <li><a href="/admin/logs" class="<?php echo $adminPage === 'logs' ? 'active' : ''; ?>">日志审计</a></li>
+                <li><a href="/admin/settings" class="<?php echo $adminPage === 'settings' ? 'active' : ''; ?>">系统设置</a></li>
             </ul>
             <div class="admin-nav-footer">
-                <a href="<?php echo $_SERVER['PHP_SELF']; ?>">返回前台</a>
-                <a href="?admin=logout">退出登录</a>
+                <a href="/">返回前台</a>
+                <a href="/admin/logout">退出登录</a>
             </div>
         </nav>
 
@@ -84,8 +84,7 @@
 
             <?php elseif ($adminPage === 'items'): ?>
                 <h1>内容管理</h1>
-                <form method="GET" class="admin-search-form">
-                    <input type="hidden" name="admin" value="items">
+                <form method="GET" action="/admin/items" class="admin-search-form">
                     <input type="text" name="q" value="<?php echo htmlspecialchars($adminData['query']); ?>" placeholder="搜索...">
                     <select name="type">
                         <option value="all" <?php echo $adminData['type_filter'] === 'all' ? 'selected' : ''; ?>>全部</option>

@@ -59,7 +59,7 @@ index.php                  # 应用入口
    - `?s=code` → 分享页
    - `?preview=code` → 文件预览（支持 Range 流式传输）
    - `?api=endpoint` → RESTful API
-   - `?admin=action` → 管理后台
+   - `/admin/action` → 管理后台
    - `?action=search` → 搜索
    - `?action=batch_delete` → 批量删除
    - POST 上传/文本/删除/下载

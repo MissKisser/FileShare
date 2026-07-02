@@ -95,7 +95,7 @@
             <input type="password" name="password" placeholder="管理员密码" required autofocus>
             <button type="submit">登录</button>
         </form>
-        <a href="<?php echo $_SERVER['PHP_SELF']; ?>" class="login-back">返回首页</a>
+        <a href="/" class="login-back">返回首页</a>
     </div>
 </body>
 </html>

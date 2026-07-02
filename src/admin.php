@@ -84,7 +84,7 @@ function handleAdminRequest() {
             $password = $_POST['password'] ?? '';
             $result = adminLogin($password);
             if ($result['success']) {
-                header('Location: ' . $_SERVER['PHP_SELF'] . '?admin=dashboard');
+                header('Location: /admin/dashboard');
                 exit;
             }
             $adminError = $result['message'];
@@ -97,13 +97,13 @@ function handleAdminRequest() {
     // 登出
     if ($page === 'logout') {
         adminLogout();
-        header('Location: ' . $_SERVER['PHP_SELF'] . '?admin=login');
+        header('Location: /admin/login');
         exit;
     }
 
     // 其他页面需要认证
     if (!isAdminLoggedIn()) {
-        header('Location: ' . $_SERVER['PHP_SELF'] . '?admin=login');
+        header('Location: /admin/login');
         exit;
     }
 

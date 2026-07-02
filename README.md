@@ -166,7 +166,7 @@ FileShare/
 
 ### 管理后台
 
-访问 `?admin=login`，使用 `.env` 中配置的 `ADMIN_PASSWORD` 登录。
+访问 `/admin`，使用 `.env` 中配置的 `ADMIN_PASSWORD` 登录。
 
 管理后台功能：
 - 仪表盘：统计概览、最近上传/下载记录

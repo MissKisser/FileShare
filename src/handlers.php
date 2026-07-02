@@ -105,7 +105,15 @@ function handleRequest() {
     }
 
     // ===== 管理后台路由（F9） =====
+    // 支持 /admin/xxx 路径和 ?admin=xxx 两种方式
+    $adminPage = null;
     if (isset($_GET['admin'])) {
+        $adminPage = $_GET['admin'];
+    } elseif (preg_match('#^/admin(/(.+))?$#', $_SERVER['REQUEST_URI'] ?? '', $m)) {
+        $adminPage = isset($m[2]) ? $m[2] : 'login';
+    }
+    if ($adminPage !== null) {
+        $_GET['admin'] = $adminPage;
         require_once __DIR__ . '/admin.php';
         handleAdminRequest();
         return;
