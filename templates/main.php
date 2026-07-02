@@ -183,6 +183,8 @@
 
         <!-- 功能卡片区 -->
         <div class="grid-layout">
+            <!-- 上传区锚点 -->
+            <div id="section-upload" class="section-anchor"></div>
             <!-- 文件上传卡片 -->
             <div class="grid-card card-upload" id="uploadCard">
                 <h2>
@@ -268,6 +270,8 @@
             </div>
 
             <!-- 存储概览 -->
+            <!-- 存储区锚点 -->
+            <div id="section-storage" class="section-anchor"></div>
             <div class="grid-card section-full">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -391,6 +395,8 @@
             </div>
 
             <!-- 上行日志 -->
+            <!-- 日志区锚点 -->
+            <div id="section-log" class="section-anchor"></div>
             <div class="grid-card section-full">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -433,6 +439,62 @@
                 </div>
             </div>
         </div>
+
+        <!-- 桌面端右侧导航栏 -->
+        <nav class="side-nav" id="sideNav">
+            <a href="#section-upload" class="side-nav-item active" data-target="section-upload" title="上传区">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17,8 12,3 7,8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <span class="side-nav-label">上传</span>
+            </a>
+            <a href="#section-storage" class="side-nav-item" data-target="section-storage" title="存储区">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                    <polyline points="13,2 13,9 20,9"/>
+                </svg>
+                <span class="side-nav-label">存储</span>
+            </a>
+            <a href="#section-log" class="side-nav-item" data-target="section-log" title="日志区">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14,2 14,8 20,8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+                <span class="side-nav-label">日志</span>
+            </a>
+        </nav>
+
+        <!-- 移动端底部导航栏 -->
+        <nav class="bottom-nav" id="bottomNav">
+            <a href="#section-upload" class="bottom-nav-item active" data-target="section-upload">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17,8 12,3 7,8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <span>上传</span>
+            </a>
+            <a href="#section-storage" class="bottom-nav-item" data-target="section-storage">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                    <polyline points="13,2 13,9 20,9"/>
+                </svg>
+                <span>存储</span>
+            </a>
+            <a href="#section-log" class="bottom-nav-item" data-target="section-log">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14,2 14,8 20,8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+                <span>日志</span>
+            </a>
+        </nav>
     </main>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
@@ -474,6 +536,50 @@
         // 站点配置
         window.FILESHARE_BASE_URL = '<?php echo getBaseUrl(); ?>';
         window.FILESHARE_CSRF = '<?php echo $_SESSION['csrf_token']; ?>';
+
+        // 导航栏：平滑滚动 + 滚动监听高亮
+        (function() {
+            var sections = ['section-upload', 'section-storage', 'section-log'];
+            var sideNavItems = document.querySelectorAll('.side-nav-item');
+            var bottomNavItems = document.querySelectorAll('.bottom-nav-item');
+
+            // 点击导航 → 平滑滚动
+            sideNavItems.forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var target = document.getElementById(item.getAttribute('data-target'));
+                    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+
+            bottomNavItems.forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var target = document.getElementById(item.getAttribute('data-target'));
+                    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+
+            // IntersectionObserver 监听当前区域
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        var id = entry.target.id;
+                        sideNavItems.forEach(function(item) {
+                            item.classList.toggle('active', item.getAttribute('data-target') === id);
+                        });
+                        bottomNavItems.forEach(function(item) {
+                            item.classList.toggle('active', item.getAttribute('data-target') === id);
+                        });
+                    }
+                });
+            }, { threshold: 0.3, rootMargin: '-80px 0px -50% 0px' });
+
+            sections.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) observer.observe(el);
+            });
+        })();
     </script>
 </body>
 </html>

@@ -187,3 +187,144 @@
     height: 18px;
     flex-shrink: 0;
 }
+
+/* ========================================
+   导航栏
+   ======================================== */
+
+/* 锚点偏移，避免固定导航遮挡 */
+.section-anchor {
+    display: block;
+    position: relative;
+    visibility: hidden;
+    height: 0;
+    margin-top: -24px;
+    padding-top: 24px;
+}
+
+/* ---- 桌面端右侧导航 ---- */
+.side-nav {
+    position: fixed;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 150;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 8px;
+    box-shadow: var(--card-shadow);
+}
+
+.side-nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.side-nav-item:hover {
+    background: var(--sidebar-hover);
+    color: var(--accent-blue);
+}
+
+.side-nav-item.active {
+    background: var(--sidebar-active);
+    color: var(--accent-blue);
+}
+
+.side-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 20px;
+    background: var(--accent-blue);
+    border-radius: 2px;
+}
+
+/* Tooltip */
+.side-nav-label {
+    position: absolute;
+    right: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    box-shadow: var(--card-shadow);
+    opacity: 0;
+    visibility: hidden;
+    transition: all var(--transition-fast);
+    pointer-events: none;
+}
+
+.side-nav-item:hover .side-nav-label {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ---- 移动端底部导航 ---- */
+.bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 150;
+    background: var(--card-bg);
+    border-top: 1px solid var(--border-color);
+    padding: 6px 0;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    padding: 6px 0;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 10px;
+    font-weight: 500;
+    gap: 3px;
+    transition: color var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.bottom-nav-item svg {
+    width: 18px;
+    height: 18px;
+}
+
+.bottom-nav-item span {
+    line-height: 1;
+}
+
+.bottom-nav-item.active {
+    color: var(--accent-blue);
+}
+
+.bottom-nav-item.active svg {
+    stroke-width: 2.5;
+}
