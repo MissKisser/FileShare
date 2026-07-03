@@ -153,6 +153,40 @@ function handleApiRequest() {
         return;
     }
 
+    // ===== 分片上传端点（B1） =====
+    if (strpos($endpoint, 'upload/') === 0) {
+        require_once __DIR__ . '/chunk_upload.php';
+        switch ($endpoint) {
+            case 'upload/init':
+                if ($method === 'POST') {
+                    validateApiToken('write');
+                    handleChunkInit();
+                } else {
+                    apiError('不支持的请求方法', 405);
+                }
+                break;
+            case 'upload/chunk':
+                if ($method === 'POST') {
+                    validateApiToken('write');
+                    handleChunkReceive();
+                } else {
+                    apiError('不支持的请求方法', 405);
+                }
+                break;
+            case 'upload/merge':
+                if ($method === 'POST') {
+                    validateApiToken('write');
+                    handleChunkMerge();
+                } else {
+                    apiError('不支持的请求方法', 405);
+                }
+                break;
+            default:
+                apiError('未知的 upload 子端点', 404);
+        }
+        return;
+    }
+
     // 需要认证的端点
     switch ($endpoint) {
         case 'items':
