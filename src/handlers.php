@@ -117,6 +117,12 @@ function handleRequest() {
         return;
     }
 
+    // ===== 原始文件输出路由（PDF.js 等需要） =====
+    if (isset($_GET['raw'])) {
+        handleRawFile();
+        return;
+    }
+
     // ===== 压缩包预览路由（B3） =====
     if (isset($_GET['archive'])) {
         require_once __DIR__ . '/archive.php';
@@ -780,11 +786,55 @@ function handlePreview() {
         streamFile($item['path'], $mimeType);
         exit;
     } elseif (in_array($ext, $pdfExts)) {
-        // PDF：内联显示
-        header('Content-Type: application/pdf');
-        header('Content-Disposition: inline; filename="' . htmlspecialchars(basename($item['name']), ENT_QUOTES, 'UTF-8') . '"');
-        header('Content-Length: ' . filesize($item['path']));
-        readfile($item['path']);
+        // PDF：渲染 PDF.js 预览页面
+        $baseUrl = getBaseUrl();
+        $pdfUrl = $baseUrl . '?raw=' . $item['id'];
+        $pageTitle = htmlspecialchars($item['name'], ENT_QUOTES, 'UTF-8');
+        $theme = isset($_SESSION['theme']) ? $_SESSION['theme'] : '';
+        $isDark = $theme === 'dark' || (empty($theme) && (
+            isset($_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME']) &&
+            $_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME'] === 'dark'
+        ));
+        $themeAttr = $isDark ? ' data-theme="dark"' : '';
+        $cssDir = $baseUrl . 'assets/css/';
+        $jsDir = $baseUrl . 'assets/js/';
+        $v = time();
+        echo '<!DOCTYPE html><html lang="zh-CN"' . $themeAttr . '><head>' .
+            '<meta charset="UTF-8">' .
+            '<meta name="viewport" content="width=device-width,initial-scale=1.0">' .
+            '<title>' . $pageTitle . ' - PDF 预览</title>' .
+            '<link rel="icon" type="image/x-icon" href="/favicon.ico">' .
+            '<link rel="stylesheet" href="' . $cssDir . 'variables.css?v=' . $v . '">' .
+            '<link rel="stylesheet" href="' . $cssDir . 'reset.css?v=' . $v . '">' .
+            '<style>' .
+            'body{background:var(--bg-primary,#fff);color:var(--text-primary,#111);font-family:Noto Sans SC,sans-serif;margin:0}' .
+            '.pdf-toolbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 16px;background:var(--card-bg,#fff);border-bottom:1px solid var(--border-color,#e5e7eb);box-shadow:0 2px 4px rgba(0,0,0,.05)}' .
+            '.pdf-toolbar button{background:var(--bg-secondary,#f5f5f5);border:1px solid var(--border-color,#e5e7eb);border-radius:4px;padding:6px 12px;cursor:pointer;font-size:14px;color:var(--text-primary,#111)}' .
+            '.pdf-toolbar button:disabled{opacity:.4;cursor:default}' .
+            '.pdf-toolbar button:hover:not(:disabled){background:var(--accent-blue,#3b82f6);color:#fff}' .
+            '#pdfPageInfo{font-size:14px;color:var(--text-secondary,#666);min-width:60px;text-align:center}' .
+            '.pdf-canvas-wrap{display:flex;justify-content:center;padding:20px;overflow:auto;background:var(--bg-secondary,#f5f5f5);min-height:calc(100vh - 52px)}' .
+            '#pdfCanvas{box-shadow:0 2px 8px rgba(0,0,0,.15);max-width:100%}' .
+            '.pdf-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary,#666);text-decoration:none;font-size:14px;margin-right:auto}' .
+            '.pdf-back:hover{color:var(--accent-blue,#3b82f6)}' .
+            '.pdf-download{margin-left:auto}' .
+            '</style></head><body>' .
+            '<div class="pdf-toolbar">' .
+            '<a href="' . $baseUrl . '?s=' . htmlspecialchars($item['share_code']) . '" class="pdf-back">&larr; 返回</a>' .
+            '<button id="pdfPrev" disabled>&#9664; 上一页</button>' .
+            '<span id="pdfPageInfo">-</span>' .
+            '<button id="pdfNext">下一页 &#9654;</button>' .
+            '<button id="pdfZoomOut">-</button>' .
+            '<button id="pdfZoomIn">+</button>' .
+            '<a href="' . $baseUrl . '?download=' . $item['id'] . '" class="pdf-download" style="text-decoration:none;background:var(--bg-secondary,#f5f5f5);border:1px solid var(--border-color,#e5e7eb);border-radius:4px;padding:6px 12px;font-size:14px;color:var(--text-primary,#111)">下载</a>' .
+            '</div>' .
+            '<div class="pdf-canvas-wrap">' .
+            '<canvas id="pdfCanvas"></canvas>' .
+            '</div>' .
+            '<div id="pdfViewerContainer" data-src="' . htmlspecialchars($pdfUrl, ENT_QUOTES, 'UTF-8') . '" style="display:none"></div>' .
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>' .
+            '<script src="' . $jsDir . 'pdf-preview.js?v=' . $v . '"></script>' .
+            '</body></html>';
         exit;
     } elseif (in_array($ext, ['md', 'markdown'])) {
         // Markdown：渲染 HTML 页面
@@ -876,6 +926,48 @@ function streamFile($path, $mimeType) {
         flush();
     }
     fclose($fp);
+}
+
+/**
+ * 原始文件输出（供 PDF.js 等前端组件使用）
+ * 路由：?raw=N
+ */
+function handleRawFile() {
+    $id = intval($_GET['raw']);
+    if ($id <= 0) {
+        http_response_code(400);
+        echo '无效参数';
+        exit;
+    }
+
+    $db = getDb();
+    $stmt = $db->prepare('SELECT * FROM items WHERE id = ? AND type = \'file\'');
+    $stmt->execute(array($id));
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$item || empty($item['path']) || !file_exists($item['path'])) {
+        http_response_code(404);
+        echo '文件不存在';
+        exit;
+    }
+
+    // 密码保护检查
+    if (!empty($item['password'])) {
+        $code = $item['share_code'];
+        $unlockedKey = 'unlocked_' . $code;
+        if (empty($_SESSION[$unlockedKey])) {
+            http_response_code(403);
+            echo '需要密码';
+            exit;
+        }
+    }
+
+    $mimeType = $item['mime_type'] ?: 'application/octet-stream';
+    header('Content-Type: ' . $mimeType);
+    header('Content-Length: ' . filesize($item['path']));
+    header('Cache-Control: private, max-age=3600');
+    readfile($item['path']);
+    exit;
 }
 
 /**
