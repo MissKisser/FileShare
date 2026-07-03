@@ -1014,30 +1014,135 @@ document.addEventListener('DOMContentLoaded', function() {
         const durationSelect = document.querySelector('select[name="duration"]');
         const duration = durationSelect ? durationSelect.value : '86400';
 
-        // 创建 FormData
-        const formData = new FormData();
-        formData.append('duration', duration);
-
-        // 添加 CSRF token（必须，否则后端会拒绝）
-        const csrfToken = document.querySelector('input[name="csrf_token"]');
-        if (csrfToken) {
-            formData.append('csrf_token', csrfToken.value);
-        }
-
-        // 如果有大文件，附加密码字段供后端二次校验
-        if (auth.oversized && auth.oversized.length > 0 && auth.password) {
-            formData.append('large_file_password', auth.password);
-        }
-
-        validFiles.forEach(fileData => {
-            formData.append('files[]', fileData.file);
-        });
+        // ===== 分片上传分流（B1） =====
+        // 超过 50MB 的文件走分片上传，其余走原有 FormData
+        const CHUNK_THRESHOLD = 50 * 1024 * 1024;
+        const smallFiles = validFiles.filter(f => f.file.size <= CHUNK_THRESHOLD);
+        const largeFiles = validFiles.filter(f => f.file.size > CHUNK_THRESHOLD);
 
         // 初始化进度
         initializeProgress(validFiles);
 
-        // 发送上传请求
-        uploadFiles(formData, validFiles);
+        // 先上传小文件（原有逻辑）
+        if (smallFiles.length > 0) {
+            const formData = new FormData();
+            formData.append('duration', duration);
+
+            const csrfToken = document.querySelector('input[name="csrf_token"]');
+            if (csrfToken) {
+                formData.append('csrf_token', csrfToken.value);
+            }
+
+            if (auth.oversized && auth.oversized.length > 0 && auth.password) {
+                formData.append('large_file_password', auth.password);
+            }
+
+            smallFiles.forEach(fileData => {
+                formData.append('files[]', fileData.file);
+            });
+
+            // 小文件同步上传（等待完成后再处理大文件）
+            await new Promise((resolve) => {
+                const xhr = new XMLHttpRequest();
+                currentXhr = xhr;
+                startTime = Date.now();
+                lastTime = startTime;
+                lastLoaded = 0;
+
+                xhr.upload.addEventListener('progress', function(e) {
+                    if (e.lengthComputable) {
+                        const pct = (e.loaded / e.total) * 100;
+                        smallFiles.forEach(fileData => {
+                            updateFileProgress(fileData.id, pct, 'uploading');
+                        });
+                    }
+                });
+
+                xhr.addEventListener('load', function() {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.success === false) {
+                                handleUploadError(smallFiles, response.message || '上传失败');
+                            } else {
+                                smallFiles.forEach(fileData => {
+                                    updateFileProgress(fileData.id, 100, 'success');
+                                });
+                            }
+                        } catch (e) {
+                            handleUploadError(smallFiles, '响应解析失败');
+                        }
+                    } else {
+                        handleUploadError(smallFiles, 'HTTP ' + xhr.status);
+                    }
+                    resolve();
+                });
+
+                xhr.addEventListener('error', function() {
+                    handleUploadError(smallFiles, '网络错误');
+                    resolve();
+                });
+
+                xhr.open('POST', location.pathname + (location.search || ''), true);
+                xhr.send(formData);
+            });
+        }
+
+        // 再逐个上传大文件（分片上传）
+        if (largeFiles.length > 0 && typeof FileShareChunkedUploader !== 'undefined') {
+            for (const fileData of largeFiles) {
+                const uploader = new FileShareChunkedUploader({
+                    chunkSize: 5 * 1024 * 1024,
+                    concurrency: 3,
+                    onProgress: function(pct) {
+                        updateFileProgress(fileData.id, pct, 'uploading');
+                        // 更新整体进度
+                        if (overallProgress) overallProgress.textContent = pct + '%';
+                        if (overallProgressBar) overallProgressBar.style.width = pct + '%';
+                    },
+                    onSuccess: function(item) {
+                        updateFileProgress(fileData.id, 100, 'success');
+                    },
+                    onError: function(msg) {
+                        updateFileProgress(fileData.id, 0, 'error');
+                        showToast(fileData.name + '：' + msg, 'error');
+                    },
+                });
+
+                await uploader.upload(fileData.file, {
+                    duration: parseInt(duration),
+                    largeFilePassword: auth.password || '',
+                });
+            }
+        } else if (largeFiles.length > 0 && typeof FileShareChunkedUploader === 'undefined') {
+            // 降级：分片上传器未加载，走原有 FormData
+            const formData = new FormData();
+            formData.append('duration', duration);
+            const csrfToken = document.querySelector('input[name="csrf_token"]');
+            if (csrfToken) formData.append('csrf_token', csrfToken.value);
+            if (auth.password) formData.append('large_file_password', auth.password);
+            largeFiles.forEach(fileData => formData.append('files[]', fileData.file));
+            uploadFiles(formData, largeFiles);
+            return; // uploadFiles 内部会处理后续 UI
+        }
+
+        // 全部完成后显示成功
+        const allSuccess = validFiles.every(f => {
+            const el = fileProgressList && fileProgressList.querySelector('[data-file-id="' + f.id + '"]');
+            return el && el.classList.contains('success');
+        });
+
+        if (allSuccess) {
+            if (overallProgress) overallProgress.textContent = '100%';
+            if (overallProgressBar) overallProgressBar.style.width = '100%';
+            setTimeout(() => {
+                hideProgressPanel();
+                pendingFiles = [];
+                hideSelectedFilesContainer();
+                showToast('成功上传 ' + validFiles.length + ' 个文件', 'success');
+                refreshStorageList();
+            }, 500);
+        }
     }
 
     /**

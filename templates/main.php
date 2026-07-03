@@ -511,6 +511,8 @@
     <script src="assets/js/qrcode.min.js?v=<?php echo time(); ?>"></script>
     <!-- 统计图表库（F8） -->
     <script src="assets/js/charts.js?v=<?php echo time(); ?>"></script>
+    <!-- 分片上传控制器（B1） -->
+    <script src="assets/js/chunked-upload.js?v=<?php echo time(); ?>"></script>
     <script src="assets/js/upload.js?v=<?php echo time(); ?>"></script>
     <script>
         // 主题切换功能
