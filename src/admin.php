@@ -76,7 +76,7 @@ function adminLogout() {
 // ============================================================
 
 function handleAdminRequest() {
-    @file_put_contents('/tmp/admin_enter.log', '[' . date('H:i:s') . '] admin=' . ($_GET['admin'] ?? '(none)') . ' METHOD=' . ($_SERVER['REQUEST_METHOD'] ?? '') . ' URI=' . ($_SERVER['REQUEST_URI'] ?? '') . ' GET_ajax=' . ($_GET['ajax'] ?? '(none)') . "\n", FILE_APPEND);
+    @file_put_contents('/tmp/admin_enter.log', '[' . date('H:i:s') . '] admin=' . ($_GET['admin'] ?? '(none)') . ' METHOD=' . ($_SERVER['REQUEST_METHOD'] ?? '') . ' URI=' . ($_SERVER['REQUEST_URI'] ?? '') . ' QUERY_STRING=' . ($_SERVER['QUERY_STRING'] ?? '') . ' GET_ajax=' . ($_GET['ajax'] ?? '(none)') . "\n", FILE_APPEND);
     $page = $_GET['admin'] ?? 'login';
 
     // 登录页面和登录请求不需要认证
