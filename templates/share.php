@@ -34,6 +34,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     <link rel="stylesheet" href="assets/css/components.css?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="assets/css/upload.css?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="assets/css/responsive.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="assets/css/gallery.css?v=<?php echo time(); ?>">
     <style>
         .share-page {
             max-width: 680px;
@@ -193,6 +194,17 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
         .share-back:hover {
             color: var(--accent-blue);
         }
+        .share-image-preview {
+            margin-top: 16px;
+            text-align: center;
+        }
+        .share-image-preview img {
+            max-width: 100%;
+            max-height: 500px;
+            border-radius: var(--radius-md);
+            cursor: zoom-in;
+            object-fit: contain;
+        }
     </style>
 </head>
 <body>
@@ -286,6 +298,19 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                 <?php if ($item['type'] === 'text'): ?>
                     <div class="share-text-content">
                         <pre class="line-numbers"><code id="shareTextContent" class="language-plaintext"><?php echo htmlspecialchars($item['content'] ?? ''); ?></code></pre>
+                    </div>
+                <?php endif; ?>
+
+                <?php
+                    // 图片内联预览（A2 灯箱）
+                    $imageExts = array('jpg','jpeg','png','gif','webp','bmp','svg','ico');
+                    $fileExt = strtolower(pathinfo($item['name'] ?? '', PATHINFO_EXTENSION));
+                    if ($item['type'] === 'file' && in_array($fileExt, $imageExts)):
+                ?>
+                    <div class="share-image-preview">
+                        <img src="?preview=<?php echo htmlspecialchars($item['share_code']); ?>"
+                             alt="<?php echo htmlspecialchars($item['name']); ?>"
+                             data-gallery>
                     </div>
                 <?php endif; ?>
 
@@ -459,5 +484,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     </script>
     <!-- 语法高亮封装（A1） -->
     <script src="assets/js/syntax.js?v=<?php echo time(); ?>"></script>
+    <!-- 图片灯箱（A2） -->
+    <script src="assets/js/gallery.js?v=<?php echo time(); ?>"></script>
 </body>
 </html>
