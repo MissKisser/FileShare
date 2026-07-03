@@ -117,6 +117,13 @@ function handleRequest() {
         return;
     }
 
+    // ===== 压缩包预览路由（B3） =====
+    if (isset($_GET['archive'])) {
+        require_once __DIR__ . '/archive.php';
+        handleArchiveRequest();
+        return;
+    }
+
     // ===== API 路由（F3） =====
     if (isset($_GET['api'])) {
         require_once __DIR__ . '/api.php';
@@ -869,6 +876,71 @@ function streamFile($path, $mimeType) {
         flush();
     }
     fclose($fp);
+}
+
+/**
+ * 处理压缩包在线预览请求（B3）
+ * 路由：?archive=list&item_id=N | ?archive=read&item_id=N&path=xxx
+ */
+function handleArchiveRequest() {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $action = $_GET['archive'];
+    $itemId = isset($_GET['item_id']) ? intval($_GET['item_id']) : 0;
+    if ($itemId <= 0) {
+        http_response_code(400);
+        echo json_encode(array('error' => '缺少 item_id 参数'), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $db = getDb();
+    $stmt = $db->prepare('SELECT * FROM items WHERE id = ? AND type = \'file\'');
+    $stmt->execute(array($itemId));
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$item) {
+        http_response_code(404);
+        echo json_encode(array('error' => '文件不存在'), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // 验证为压缩包类型
+    $ext = strtolower(pathinfo($item['name'], PATHINFO_EXTENSION));
+    $archiveExts = array('zip', 'tar', 'gz', 'tgz');
+    if (!in_array($ext, $archiveExts)) {
+        http_response_code(400);
+        echo json_encode(array('error' => '非压缩包文件'), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // 密码保护检查
+    if (!empty($item['password'])) {
+        $code = $item['share_code'];
+        $unlockedKey = 'unlocked_' . $code;
+        if (empty($_SESSION[$unlockedKey])) {
+            http_response_code(403);
+            echo json_encode(array('error' => '需要先通过分享页输入密码'), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
+    if ($action === 'list') {
+        $result = archiveList($item);
+        echo json_encode($result, JSON_UNESCAPED_UNICODE);
+    } elseif ($action === 'read') {
+        $innerPath = $_GET['path'] ?? '';
+        if (empty($innerPath)) {
+            http_response_code(400);
+            echo json_encode(array('error' => '缺少 path 参数'), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $result = archiveRead($item, $innerPath);
+        echo json_encode($result, JSON_UNESCAPED_UNICODE);
+    } else {
+        http_response_code(400);
+        echo json_encode(array('error' => '未知操作: ' . $action), JSON_UNESCAPED_UNICODE);
+    }
+    exit;
 }
 
 // ============================================================
