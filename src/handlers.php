@@ -779,6 +779,54 @@ function handlePreview() {
         header('Content-Length: ' . filesize($item['path']));
         readfile($item['path']);
         exit;
+    } elseif (in_array($ext, ['md', 'markdown'])) {
+        // Markdown：渲染 HTML 页面
+        $mdContent = file_get_contents($item['path']);
+        $pageTitle = htmlspecialchars($item['name'], ENT_QUOTES, 'UTF-8');
+        $mdJson = json_encode($mdContent, JSON_UNESCAPED_UNICODE);
+        $baseUrl = getBaseUrl();
+        $theme = isset($_SESSION['theme']) ? $_SESSION['theme'] : '';
+        $isDark = $theme === 'dark' || (empty($theme) && (
+            isset($_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME']) &&
+            $_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME'] === 'dark'
+        ));
+        $themeAttr = $isDark ? ' data-theme="dark"' : '';
+        $cssDir = $baseUrl . 'assets/css/';
+        $jsDir = $baseUrl . 'assets/js/';
+        $v = time();
+        echo '<!DOCTYPE html><html lang="zh-CN"' . $themeAttr . '><head>' .
+            '<meta charset="UTF-8">' .
+            '<meta name="viewport" content="width=device-width,initial-scale=1.0">' .
+            '<title>' . $pageTitle . ' - 预览</title>' .
+            '<link rel="icon" type="image/x-icon" href="/favicon.ico">' .
+            '<link rel="stylesheet" href="' . $cssDir . 'variables.css?v=' . $v . '">' .
+            '<link rel="stylesheet" href="' . $cssDir . 'reset.css?v=' . $v . '">' .
+            '<style>' .
+            'body{background:var(--bg-primary,#fff);color:var(--text-primary,#111);font-family:Noto Sans SC,sans-serif;padding:24px;max-width:860px;margin:0 auto;line-height:1.7}' .
+            '#markdownBody h1,#markdownBody h2,#markdownBody h3,#markdownBody h4{margin:1.2em 0 .6em;font-weight:600}' .
+            '#markdownBody h1{font-size:1.8em;border-bottom:1px solid var(--border-color,#e5e7eb);padding-bottom:.3em}' .
+            '#markdownBody h2{font-size:1.5em;border-bottom:1px solid var(--border-color,#e5e7eb);padding-bottom:.3em}' .
+            '#markdownBody h3{font-size:1.25em}' .
+            '#markdownBody code{background:var(--bg-secondary,#f5f5f5);padding:2px 6px;border-radius:3px;font-size:.9em;font-family:JetBrains Mono,monospace}' .
+            '#markdownBody pre{background:var(--bg-secondary,#f5f5f5);padding:16px;border-radius:6px;overflow-x:auto}' .
+            '#markdownBody pre code{background:none;padding:0}' .
+            '#markdownBody blockquote{border-left:4px solid var(--accent-blue,#3b82f6);margin:1em 0;padding:.5em 1em;color:var(--text-secondary,#666)}' .
+            '#markdownBody table{border-collapse:collapse;width:100%;margin:1em 0}' .
+            '#markdownBody th,#markdownBody td{border:1px solid var(--border-color,#e5e7eb);padding:8px 12px;text-align:left}' .
+            '#markdownBody th{background:var(--bg-secondary,#f5f5f5)}' .
+            '#markdownBody img{max-width:100%;border-radius:4px}' .
+            '#markdownBody input[type="checkbox"]{margin-right:6px}' .
+            '.md-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary,#666);text-decoration:none;font-size:14px;margin-bottom:16px}' .
+            '.md-back:hover{color:var(--accent-blue,#3b82f6)}' .
+            '</style></head><body>' .
+            '<a href="' . $baseUrl . '?s=' . htmlspecialchars($item['share_code']) . '" class="md-back">&larr; 返回分享页</a>' .
+            '<div id="markdownBody"></div>' .
+            '<script id="markdownSource" type="text/plain">' . htmlspecialchars($mdContent, ENT_NOQUOTES, 'UTF-8') . '</script>' .
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>' .
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>' .
+            '<script src="' . $jsDir . 'markdown.js?v=' . $v . '"></script>' .
+            '</body></html>';
+        exit;
     }
 
     // 其他类型不支持在线预览
