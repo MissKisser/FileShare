@@ -313,6 +313,136 @@ curl -X POST 'https://your-domain.com/?api=text' \
 
 ---
 
+## 分块上传（大文件 > 50MB）
+
+对于超过 50MB 的文件，前端自动切换为分块上传模式，将文件切分为 5MB 的块并行上传。
+
+### 初始化上传会话
+
+**POST** `?api=upload/init`
+
+**请求体（JSON）：**
+```json
+{
+  "filename": "large-file.zip",
+  "filesize": 536870912,
+  "chunk_count": 108,
+  "duration": 86400,
+  "access_password": ""
+}
+```
+
+**响应：**
+```json
+{
+  "success": true,
+  "session_id": "a1b2c3d4e5f6...",
+  "chunk_count": 108,
+  "received_chunks": 0,
+  "message": "上传会话已创建"
+}
+```
+
+### 上传单个块
+
+**POST** `?api=upload/chunk`
+
+**表单字段（multipart/form-data）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | string | 上传会话 ID |
+| `chunk_index` | int | 块序号（0-based） |
+| `chunk` | file | 块数据（≤5MB） |
+
+**响应：**
+```json
+{
+  "success": true,
+  "chunk_index": 0,
+  "received_chunks": 1,
+  "total_chunks": 108
+}
+```
+
+### 合并块
+
+**POST** `?api=upload/merge`
+
+**请求体（JSON）：**
+```json
+{
+  "session_id": "a1b2c3d4e5f6..."
+}
+```
+
+**响应：**
+```json
+{
+  "success": true,
+  "item": {
+    "id": 42,
+    "share_code": "e5f6g7h8",
+    "share_url": "https://your-domain.com/?s=e5f6g7h8",
+    "type": "file",
+    "name": "large-file.zip",
+    "size": 536870912,
+    "size_formatted": "512 MB"
+  },
+  "message": "文件合并完成"
+}
+```
+
+---
+
+## 缩略图
+
+### 获取/生成缩略图
+
+**GET** `?action=thumb&item_id={id}`
+
+为指定文件生成缩略图（图片/视频），返回缩略图图片。如果缩略图已存在则直接返回，否则懒生成。
+
+**响应：** 图片文件（Content-Type: image/webp 或 image/jpeg）
+
+---
+
+## 压缩包预览
+
+### 列出压缩包内容
+
+**GET** `?archive=list&item_id={id}`
+
+返回 ZIP/TAR 压缩包内文件列表。
+
+**响应：**
+```json
+{
+  "entries": [
+    { "name": "folder/", "size": 0, "is_dir": true, "compressed_size": 0 },
+    { "name": "folder/readme.md", "size": 1024, "is_dir": false, "compressed_size": 512 }
+  ],
+  "error": null
+}
+```
+
+### 读取压缩包内文件
+
+**GET** `?archive=read&item_id={id}&path={inner_path}`
+
+读取压缩包内文本文件内容。
+
+**响应：**
+```json
+{
+  "content": "# Hello World\nThis is a readme file.",
+  "mime": "text/markdown",
+  "error": null
+}
+```
+
+---
+
 ## 分享链接
 
 每个上传的文件或保存的文本都会自动生成分享链接：
