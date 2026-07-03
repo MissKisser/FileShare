@@ -325,6 +325,14 @@
                                 <div class="item-select">
                                     <input type="checkbox" class="item-checkbox" data-id="<?php echo $item['id']; ?>">
                                 </div>
+                                <?php if ($item['type'] === 'file'): ?>
+                                <div class="item-thumb" data-thumbnail-item="<?php echo $item['id']; ?>"
+                                     data-thumbnail-path="<?php echo htmlspecialchars($item['thumbnail_path'] ?? ''); ?>"
+                                     data-mime="<?php echo htmlspecialchars($item['mime_type'] ?? ''); ?>"
+                                     data-name="<?php echo htmlspecialchars($item['name'] ?? ''); ?>">
+                                    <!-- 由 thumbnail.js 填充 -->
+                                </div>
+                                <?php endif; ?>
                                 <div class="item-info">
                                     <div class="item-name">
                                         <?php if (!empty($item['password'])): ?>
@@ -513,6 +521,8 @@
     <script src="assets/js/charts.js?v=<?php echo time(); ?>"></script>
     <!-- 分片上传控制器（B1） -->
     <script src="assets/js/chunked-upload.js?v=<?php echo time(); ?>"></script>
+    <!-- 缩略图懒加载（B2） -->
+    <script src="assets/js/thumbnail.js?v=<?php echo time(); ?>"></script>
     <script src="assets/js/upload.js?v=<?php echo time(); ?>"></script>
     <script>
         // 主题切换功能
