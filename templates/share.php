@@ -417,18 +417,16 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                     <?php if ($item['type'] === 'file'): ?>
                         <a href="?download=<?php echo $item['id']; ?>" class="btn btn-primary">下载文件</a>
                         <?php
-                            $ext = strtolower(pathinfo($item['name'] ?? '', PATHINFO_EXTENSION));
-                            $archiveExts = array('zip','tar','gz','tgz');
                             $previewableExts = array_merge(
-                                ['jpg','jpeg','png','gif','webp','bmp','svg','ico'],
-                                ['mp4','webm','ogv','ogg'],
-                                ['mp3','wav','aac','flac','m4a','opus'],
-                                ['pdf','md','markdown']
+                                array('jpg','jpeg','png','gif','webp','bmp','svg','ico'),
+                                array('mp4','webm','ogv','ogg'),
+                                array('mp3','wav','aac','flac','m4a','opus'),
+                                array('pdf','md','markdown')
                             );
-                            if (in_array($ext, $previewableExts)):
+                            if (in_array($fileExt, $previewableExts)):
                         ?>
                             <a href="?preview=<?php echo $item['share_code']; ?>" class="btn btn-secondary" target="_blank">在线预览</a>
-                        <?php elseif (in_array($ext, $archiveExts)): ?>
+                        <?php elseif (in_array($fileExt, $archiveExts)): ?>
                             <button type="button" class="btn btn-secondary" id="archivePreviewBtn" data-item-id="<?php echo $item['id']; ?>">在线预览</button>
                         <?php endif; ?>
                     <?php else: ?>
