@@ -383,7 +383,7 @@
 
             var formData = new FormData(form);
 
-            fetch(window.location.pathname + '?admin=settings', {
+            fetch(window.location.pathname + '?admin=settings&ajax=1', {
                 method: 'POST',
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
