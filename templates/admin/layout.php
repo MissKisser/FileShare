@@ -382,8 +382,10 @@
             setHint('', '');
 
             var formData = new FormData(form);
+            formData.append('admin', 'settings');
+            formData.append('ajax', '1');
 
-            fetch(window.location.pathname + '?admin=settings&ajax=1', {
+            fetch(window.location.pathname, {
                 method: 'POST',
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',

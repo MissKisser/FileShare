@@ -156,9 +156,10 @@ function handleAdminRequest() {
             $adminPage = 'settings';
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 handleAdminSettingsSave();
-                // 判断是否 AJAX 请求（query string 最可靠，其他头可能被 nginx 过滤）
+                // 判断是否 AJAX 请求（query string / POST body / header 三重 fallback）
                 $isAjax = (
                     (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
+                    (isset($_POST['ajax']) && $_POST['ajax'] === '1') ||
                     (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
                     (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
                 );
