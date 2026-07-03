@@ -15,12 +15,12 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/variables.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/reset.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/layout.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/components.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/upload.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/responsive.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/variables.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/reset.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/layout.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/components.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/upload.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/responsive.css?v=<?php echo APP_VERSION; ?>">
 </head>
 <body>
     <!-- 主题切换按钮 -->
@@ -515,14 +515,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
     <!-- 二维码生成库（F14） -->
-    <script src="assets/js/qrcode.min.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/qrcode.min.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- 统计图表库（F8） -->
-    <script src="assets/js/charts.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/charts.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- 分片上传控制器（B1） -->
-    <script src="assets/js/chunked-upload.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/chunked-upload.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- 缩略图懒加载（B2） -->
-    <script src="assets/js/thumbnail.js?v=<?php echo time(); ?>"></script>
-    <script src="assets/js/upload.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/thumbnail.js?v=<?php echo APP_VERSION; ?>"></script>
+    <script src="/assets/js/upload.js?v=<?php echo APP_VERSION; ?>"></script>
     <script>
         // 主题切换功能
         (function() {

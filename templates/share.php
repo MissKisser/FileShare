@@ -28,13 +28,13 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/variables.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/reset.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/layout.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/components.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/upload.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/responsive.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/gallery.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/variables.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/reset.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/layout.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/components.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/upload.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/responsive.css?v=<?php echo APP_VERSION; ?>">
+    <link rel="stylesheet" href="/assets/css/gallery.css?v=<?php echo APP_VERSION; ?>">
     <style>
         .share-page {
             max-width: 680px;
@@ -455,7 +455,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
-    <script src="assets/js/qrcode.min.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/qrcode.min.js?v=<?php echo APP_VERSION; ?>"></script>
     <script>
         // 主题切换
         (function() {
@@ -583,10 +583,10 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
         })();
     </script>
     <!-- 语法高亮封装（A1） -->
-    <script src="assets/js/syntax.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/syntax.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- 图片灯箱（A2） -->
-    <script src="assets/js/gallery.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/gallery.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- 压缩包预览（B3） -->
-    <script src="assets/js/archive.js?v=<?php echo time(); ?>"></script>
+    <script src="/assets/js/archive.js?v=<?php echo APP_VERSION; ?>"></script>
 </body>
 </html>

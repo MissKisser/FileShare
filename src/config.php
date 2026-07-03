@@ -7,6 +7,9 @@ if (!defined('ACCESS_ALLOWED')) {
     exit('Access Denied');
 }
 
+// 应用版本号（更新时修改此值，用于静态资源缓存破坏）
+define('APP_VERSION', '1.0.0');
+
 // 目录配置
 define('ROOT_DIR', dirname(__DIR__));
 define('PUBLIC_DIR', ROOT_DIR);

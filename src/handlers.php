@@ -796,9 +796,9 @@ function handlePreview() {
             $_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME'] === 'dark'
         ));
         $themeAttr = $isDark ? ' data-theme="dark"' : '';
-        $cssDir = $baseUrl . 'assets/css/';
-        $jsDir = $baseUrl . 'assets/js/';
-        $v = time();
+        $cssDir = '/assets/css/';
+        $jsDir = '/assets/js/';
+        $v = APP_VERSION;
         echo '<!DOCTYPE html><html lang="zh-CN"' . $themeAttr . '><head>' .
             '<meta charset="UTF-8">' .
             '<meta name="viewport" content="width=device-width,initial-scale=1.0">' .
@@ -848,9 +848,9 @@ function handlePreview() {
             $_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME'] === 'dark'
         ));
         $themeAttr = $isDark ? ' data-theme="dark"' : '';
-        $cssDir = $baseUrl . 'assets/css/';
-        $jsDir = $baseUrl . 'assets/js/';
-        $v = time();
+        $cssDir = '/assets/css/';
+        $jsDir = '/assets/js/';
+        $v = APP_VERSION;
         echo '<!DOCTYPE html><html lang="zh-CN"' . $themeAttr . '><head>' .
             '<meta charset="UTF-8">' .
             '<meta name="viewport" content="width=device-width,initial-scale=1.0">' .
@@ -907,8 +907,8 @@ function handlePreview() {
             $_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME'] === 'dark'
         ));
         $themeAttr = $isDark ? ' data-theme="dark"' : '';
-        $cssDir = $baseUrl . 'assets/css/';
-        $v = time();
+        $cssDir = '/assets/css/';
+        $v = APP_VERSION;
 
         // Prism 语言映射
         $langMap = array(
