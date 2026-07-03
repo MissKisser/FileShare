@@ -155,10 +155,12 @@ function handleAdminRequest() {
             $adminPage = 'settings';
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 handleAdminSettingsSave();
-                if (
-                    isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
-                    strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
-                ) {
+                // 判断是否 AJAX 请求（双保险：X-Requested-With + Accept）
+                $isAjax = (
+                    (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
+                    (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+                );
+                if ($isAjax) {
                     header('Content-Type: application/json; charset=utf-8');
                     if (!empty($_SESSION['admin_error'])) {
                         $msg = $_SESSION['admin_error'];

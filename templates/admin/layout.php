@@ -385,7 +385,10 @@
 
             fetch(window.location.pathname + '?admin=settings', {
                 method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                },
                 body: formData
             })
             .then(function(r) { return r.json().catch(function(){ return { ok: false, error: '返回数据格式错误' }; }); })
