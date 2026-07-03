@@ -205,6 +205,97 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             cursor: zoom-in;
             object-fit: contain;
         }
+        /* 压缩包预览 (B3) */
+        .archive-preview-container {
+            margin-top: 16px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .archive-tree {
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .archive-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .archive-title { font-weight: 600; font-size: 14px; }
+        .archive-count { font-size: 12px; color: var(--text-secondary); }
+        .archive-folder-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .archive-folder-header:hover { background: var(--bg-secondary); }
+        .archive-toggle { font-size: 10px; width: 14px; }
+        .archive-folder-body { padding-left: 20px; }
+        .archive-file {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .archive-file:hover { background: var(--bg-secondary); }
+        .archive-icon { font-size: 14px; flex-shrink: 0; }
+        .archive-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .archive-size { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
+        .archive-content-view {
+            border-top: 1px solid var(--border-color);
+            max-height: 300px;
+            overflow: auto;
+        }
+        .archive-content-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+            color: var(--text-secondary);
+            position: sticky;
+            top: 0;
+        }
+        .archive-close-btn {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 0 4px;
+        }
+        .archive-content-body {
+            margin: 0;
+            padding: 12px;
+            font-family: JetBrains Mono, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+            overflow-x: auto;
+        }
+        .archive-error, .archive-empty {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -314,11 +405,20 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                     </div>
                 <?php endif; ?>
 
+                <?php
+                    // 压缩包在线预览（B3）
+                    $archiveExts = array('zip','tar','gz','tgz');
+                    if ($item['type'] === 'file' && in_array($fileExt, $archiveExts)):
+                ?>
+                    <div id="archivePreviewContainer" class="archive-preview-container" style="display:none"></div>
+                <?php endif; ?>
+
                 <div class="share-actions">
                     <?php if ($item['type'] === 'file'): ?>
                         <a href="?download=<?php echo $item['id']; ?>" class="btn btn-primary">下载文件</a>
                         <?php
                             $ext = strtolower(pathinfo($item['name'] ?? '', PATHINFO_EXTENSION));
+                            $archiveExts = array('zip','tar','gz','tgz');
                             $previewableExts = array_merge(
                                 ['jpg','jpeg','png','gif','webp','bmp','svg','ico'],
                                 ['mp4','webm','ogv','ogg'],
@@ -328,6 +428,8 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                             if (in_array($ext, $previewableExts)):
                         ?>
                             <a href="?preview=<?php echo $item['share_code']; ?>" class="btn btn-secondary" target="_blank">在线预览</a>
+                        <?php elseif (in_array($ext, $archiveExts)): ?>
+                            <button type="button" class="btn btn-secondary" id="archivePreviewBtn" data-item-id="<?php echo $item['id']; ?>">在线预览</button>
                         <?php endif; ?>
                     <?php else: ?>
                         <button type="button" class="btn btn-primary" id="shareCopyBtn">复制文本</button>
@@ -486,5 +588,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     <script src="assets/js/syntax.js?v=<?php echo time(); ?>"></script>
     <!-- 图片灯箱（A2） -->
     <script src="assets/js/gallery.js?v=<?php echo time(); ?>"></script>
+    <!-- 压缩包预览（B3） -->
+    <script src="assets/js/archive.js?v=<?php echo time(); ?>"></script>
 </body>
 </html>
