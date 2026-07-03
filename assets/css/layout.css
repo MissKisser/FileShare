@@ -194,7 +194,6 @@
 
 /* 锚点偏移，避免固定导航遮挡 */
 .section-anchor {
-    display: block;
     position: relative;
     visibility: hidden;
     height: 0;

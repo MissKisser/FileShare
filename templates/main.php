@@ -182,9 +182,9 @@
         <?php endif; ?>
 
         <!-- 功能卡片区 -->
+        <!-- 上传区锚点 -->
+        <div id="section-upload" class="section-anchor"></div>
         <div class="grid-layout">
-            <!-- 上传区锚点 -->
-            <div id="section-upload" class="section-anchor"></div>
             <!-- 文件上传卡片 -->
             <div class="grid-card card-upload" id="uploadCard">
                 <h2>
@@ -270,8 +270,11 @@
             </div>
 
             <!-- 存储概览 -->
-            <!-- 存储区锚点 -->
-            <div id="section-storage" class="section-anchor"></div>
+        </div>
+
+        <!-- 存储区锚点 -->
+        <div id="section-storage" class="section-anchor"></div>
+        <div class="grid-layout">
             <div class="grid-card section-full">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
