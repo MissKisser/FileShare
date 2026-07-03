@@ -85,6 +85,26 @@ function validateCSRF() {
  * 主请求路由分发
  */
 function handleRequest() {
+    // ===== 缩略图懒生成端点（B2） =====
+    if (isset($_GET['action']) && $_GET['action'] === 'thumb' && isset($_GET['item_id'])) {
+        require_once __DIR__ . '/thumbnail.php';
+        header('Content-Type: application/json; charset=utf-8');
+
+        $itemId = intval($_GET['item_id']);
+        if ($itemId <= 0) {
+            echo json_encode(['success' => false, 'message' => '无效的 item_id']);
+            exit;
+        }
+
+        $newVal = generateItemThumbnail($itemId);
+        echo json_encode([
+            'success' => true,
+            'thumbnail_path' => $newVal,
+            'status' => getThumbnailStatus($newVal),
+        ]);
+        exit;
+    }
+
     // ===== 分享页面路由（F1） =====
     if (isset($_GET['s'])) {
         handleSharePage();
