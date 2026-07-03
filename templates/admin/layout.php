@@ -182,8 +182,19 @@
                 </table>
 
 <?php elseif ($adminPage === 'settings'): ?>
+                <?php
+                // 取出 session 中的保存结果消息（页面刷新后一次性显示）
+                $settingsBannerMsg = $_SESSION['admin_message'] ?? '';
+                $settingsBannerType = $_SESSION['admin_message_type'] ?? 'success';
+                $settingsBannerError = $_SESSION['admin_error'] ?? '';
+                if ($settingsBannerMsg) unset($_SESSION['admin_message'], $_SESSION['admin_message_type']);
+                if ($settingsBannerError) { unset($_SESSION['admin_error']); $settingsBannerMsg = $settingsBannerError; $settingsBannerType = 'error'; }
+                ?>
                 <h1>系统设置</h1>
                 <div id="settingsToast" class="settings-toast" hidden></div>
+                <?php if ($settingsBannerMsg): ?>
+                    <div id="settingsBanner" data-msg="<?php echo htmlspecialchars($settingsBannerMsg); ?>" data-type="<?php echo htmlspecialchars($settingsBannerType); ?>" hidden></div>
+                <?php endif; ?>
 
                 <form method="POST" id="settingsForm" class="admin-settings-form" novalidate>
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
@@ -282,13 +293,12 @@
         });
     })();
 
-    // ===== 系统设置页：AJAX 保存 + 客户端校验 + Toast =====
+    // ===== 系统设置页：原生 form 提交 + 客户端校验 + Toast =====
     (function() {
         var form = document.getElementById('settingsForm');
         if (!form) return;
 
         var submitBtn = document.getElementById('settingsSubmitBtn');
-        var hint = document.getElementById('settingsHint');
         var toast = document.getElementById('settingsToast');
 
         function showToast(message, type) {
@@ -300,12 +310,6 @@
             showToast._t = setTimeout(function() { toast.hidden = true; }, 3500);
         }
 
-        function setHint(text, type) {
-            if (!hint) return;
-            hint.textContent = text || '';
-            hint.className = 'admin-settings-hint' + (type ? ' ' + type : '');
-        }
-
         function clearErrors() {
             var rows = form.querySelectorAll('.admin-setting-row');
             for (var i = 0; i < rows.length; i++) {
@@ -315,43 +319,32 @@
             }
         }
 
-        function showFieldError(key, msg) {
-            var row = form.querySelector('.admin-setting-row[data-key="' + key + '"]');
-            if (!row) return;
+        function showFieldError(row, msg) {
             var ctrl = row.querySelector('input, textarea');
             if (ctrl) ctrl.classList.add('invalid');
             var err = row.querySelector('.admin-setting-error');
             if (err) { err.textContent = msg; err.hidden = false; }
         }
 
-        // 客户端校验（与服务端规则一致的最简版）
         function clientValidate() {
             var ok = true;
             clearErrors();
             var rows = form.querySelectorAll('.admin-setting-row');
             for (var i = 0; i < rows.length; i++) {
                 var row = rows[i];
-                var key = row.getAttribute('data-key');
                 var type = row.getAttribute('data-type');
                 var ctrl = row.querySelector('input, textarea');
                 if (!ctrl) continue;
-                var val;
-                if (type === 'switch') {
-                    val = ctrl.checked ? '1' : '0';
-                } else {
-                    val = ctrl.value;
-                }
+                var val = (type === 'switch') ? (ctrl.checked ? '1' : '0') : ctrl.value;
 
                 if (type === 'int') {
                     if (val === '' || isNaN(parseInt(val, 10))) {
-                        showFieldError(key, '必须是整数'); ok = false;
+                        showFieldError(row, '必须是整数'); ok = false;
                     }
                 } else if (type === 'bytes') {
                     if (!/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB)?$/i.test(val.trim())) {
-                        showFieldError(key, '格式无效，例如 200MB / 2GB'); ok = false;
+                        showFieldError(row, '格式无效，例如 200MB / 2GB'); ok = false;
                     }
-                } else if (type === 'text') {
-                    if (val.length > 1000) { showFieldError(key, '过长'); ok = false; }
                 }
             }
             return ok;
@@ -370,57 +363,28 @@
         });
 
         form.addEventListener('submit', function(e) {
-            e.preventDefault();
             if (!clientValidate()) {
-                setHint('请修正标红字段', 'error');
+                e.preventDefault();
                 showToast('请修正标红字段', 'error');
                 return;
             }
+            // 原生表单提交：浏览器自动 POST 到当前 URL,页面刷新
             submitBtn.disabled = true;
-            var origText = submitBtn.textContent;
             submitBtn.textContent = '保存中…';
-            setHint('', '');
-
-            var formData = new FormData(form);
-            formData.append('admin', 'settings');
-            formData.append('ajax', '1');
-
-            fetch(window.location.pathname, {
-                method: 'POST',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json'
-                },
-                body: formData
-            })
-            .then(function(r) { return r.json().catch(function(){ return { ok: false, error: '返回数据格式错误' }; }); })
-            .then(function(data) {
-                if (data.ok) {
-                    setHint(data.message || '已保存', 'success');
-                    showToast(data.message || '已保存', 'success');
-                    clearErrors();
-                } else {
-                    var msg = data.error || '保存失败';
-                    if (data.errors && data.errors.length) {
-                        msg = data.errors.join('；');
-                        data.errors.forEach(function(errLine){
-                            // errLine 形如 "网站标题 xxx" —— 简单尝试匹配 key
-                            showFieldError('', ''); // 占位以避免静默
-                        });
-                    }
-                    setHint(msg, 'error');
-                    showToast(msg, 'error');
-                }
-            })
-            .catch(function(){
-                setHint('请求失败，请重试', 'error');
-                showToast('请求失败，请重试', 'error');
-            })
-            .finally(function(){
-                submitBtn.disabled = false;
-                submitBtn.textContent = origText;
-            });
+            // 不 preventDefault,让浏览器继续 POST
         });
+
+        // 页面加载时显示服务端 message（如果有）
+        var banner = document.getElementById('settingsBanner');
+        if (banner) {
+            var msg = banner.getAttribute('data-msg') || '';
+            var type = banner.getAttribute('data-type') || '';
+            if (msg) {
+                showToast(msg, type);
+                // 滚动到顶部让用户看到
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        }
     })();
     </script>
 </body>

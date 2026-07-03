@@ -156,33 +156,7 @@ function handleAdminRequest() {
             $adminPage = 'settings';
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 handleAdminSettingsSave();
-                // 判断是否 AJAX 请求（query string / POST body / header 三重 fallback）
-                $isAjax = (
-                    (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
-                    (isset($_POST['ajax']) && $_POST['ajax'] === '1') ||
-                    (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
-                    (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
-                );
-                @file_put_contents('/tmp/settings_debug.log',
-                    '[' . date('H:i:s') . '] isAjax=' . ($isAjax ? '1' : '0') .
-                    ' GET_ajax=' . ($_GET['ajax'] ?? '(none)') .
-                    ' REQUEST_URI=' . ($_SERVER['REQUEST_URI'] ?? '') .
-                    ' METHOD=' . $_SERVER['REQUEST_METHOD'] . "\n",
-                    FILE_APPEND
-                );
-                if ($isAjax) {
-                    header('Content-Type: application/json; charset=utf-8');
-                    if (!empty($_SESSION['admin_error'])) {
-                        $msg = $_SESSION['admin_error'];
-                        unset($_SESSION['admin_error']);
-                        echo json_encode(['ok' => false, 'error' => $msg], JSON_UNESCAPED_UNICODE);
-                    } else {
-                        $msg = $_SESSION['admin_message'] ?? '已保存';
-                        unset($_SESSION['admin_message']);
-                        echo json_encode(['ok' => true, 'message' => $msg], JSON_UNESCAPED_UNICODE);
-                    }
-                    exit;
-                }
+                // 保存后 redirect 到 settings 页,模板从 session 读取消息
                 header('Location: /admin/settings');
                 exit;
             }
@@ -460,4 +434,5 @@ function handleAdminSettingsSave() {
     }
 
     $_SESSION['admin_message'] = '已保存 ' . $saved . ' 项设置';
+    $_SESSION['admin_message_type'] = 'success';
 }
