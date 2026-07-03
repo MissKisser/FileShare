@@ -457,5 +457,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             }
         })();
     </script>
+    <!-- 语法高亮封装（A1） -->
+    <script src="assets/js/syntax.js?v=<?php echo time(); ?>"></script>
 </body>
 </html>
