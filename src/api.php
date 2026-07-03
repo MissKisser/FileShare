@@ -553,17 +553,25 @@ function handleApiTextSave() {
 function handleApiStats() {
     $stats = getStorageStats();
 
+    // 基础字段（任何 read token 可见）
+    $payload = [
+        'total_items' => $stats['total_items'],
+        'file_count' => $stats['file_count'],
+        'text_count' => $stats['text_count'],
+        'total_size' => $stats['total_size'],
+        'total_size_formatted' => formatSize($stats['total_size']),
+        'category_sizes' => $stats['category_sizes'],
+        'daily_uploads' => $stats['daily_uploads'],
+    ];
+
+    // 磁盘统计仅管理员可见（API Token + 已登录管理员会话）
+    if (isAdminLoggedIn()) {
+        $payload = array_merge($payload, getDiskStats());
+    }
+
     apiResponse([
         'success' => true,
-        'stats' => [
-            'total_items' => $stats['total_items'],
-            'file_count' => $stats['file_count'],
-            'text_count' => $stats['text_count'],
-            'total_size' => $stats['total_size'],
-            'total_size_formatted' => formatSize($stats['total_size']),
-            'category_sizes' => $stats['category_sizes'],
-            'daily_uploads' => $stats['daily_uploads'],
-        ],
+        'stats' => $payload,
     ]);
 }
 

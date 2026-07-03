@@ -282,10 +282,23 @@ curl -X POST 'https://your-domain.com/?api=text' \
     "daily_uploads": [
       { "day": "2023-11-15", "cnt": 5 },
       { "day": "2023-11-14", "cnt": 3 }
-    ]
+    ],
+    "upload_dir_size": 104857600,
+    "upload_dir_size_formatted": "100 MB",
+    "upload_dir_pct": 0.50,
+    "disk_total": 53687091200,
+    "disk_total_formatted": "50 GB",
+    "disk_free": 32212254720,
+    "disk_free_formatted": "30 GB",
+    "disk_used": 21474836480,
+    "disk_used_formatted": "20 GB",
+    "disk_used_pct": 40.0
   }
 }
 ```
+
+**说明：**
+- 上方响应中的磁盘相关字段（`upload_dir_size`、`disk_total`、`disk_free`、`disk_used`、`*_formatted`、`*_pct`）**仅在管理员已登录时返回**；普通 `read` Token 不会暴露系统磁盘信息和上传目录真实占用，避免泄露服务器存储情况。
 
 ---
 

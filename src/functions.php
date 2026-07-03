@@ -459,6 +459,83 @@ function getStorageStats() {
 }
 
 /**
+ * 递归计算目录占用字节数
+ *
+ * @param string $dir 目录绝对路径
+ * @return int 字节数（失败返回 0）
+ */
+function getDirectorySize($dir) {
+    $size = 0;
+    if (!is_dir($dir)) {
+        return 0;
+    }
+    try {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $size += $file->getSize();
+            }
+        }
+    } catch (Exception $e) {
+        return 0;
+    }
+    return $size;
+}
+
+/**
+ * 获取系统磁盘空间信息
+ *
+ * @param string $path 用于查询的目录路径
+ * @return array{total:int, free:int, used:int, used_pct:float} 字节 / 百分比
+ */
+function getDiskSpace($path = null) {
+    if ($path === null) {
+        $path = UPLOAD_DIR;
+    }
+    $total = @disk_total_space($path);
+    $free = @disk_free_space($path);
+    if ($total === false || $free === false || $total <= 0) {
+        return ['total' => 0, 'free' => 0, 'used' => 0, 'used_pct' => 0.0];
+    }
+    $total = (int) $total;
+    $free = (int) $free;
+    $used = $total - $free;
+    $usedPct = $total > 0 ? round(($used / $total) * 100, 2) : 0.0;
+    return [
+        'total' => $total,
+        'free' => $free,
+        'used' => $used,
+        'used_pct' => $usedPct,
+    ];
+}
+
+/**
+ * 获取磁盘统计信息（仅管理端使用）
+ *
+ * @return array
+ */
+function getDiskStats() {
+    $dirSize = getDirectorySize(UPLOAD_DIR);
+    $disk = getDiskSpace(UPLOAD_DIR);
+    $dirPct = $disk['total'] > 0 ? round(($dirSize / $disk['total']) * 100, 2) : 0.0;
+    return [
+        'upload_dir_size' => $dirSize,
+        'upload_dir_size_formatted' => formatSize($dirSize),
+        'upload_dir_pct' => $dirPct,
+        'disk_total' => $disk['total'],
+        'disk_total_formatted' => formatSize($disk['total']),
+        'disk_free' => $disk['free'],
+        'disk_free_formatted' => formatSize($disk['free']),
+        'disk_used' => $disk['used'],
+        'disk_used_formatted' => formatSize($disk['used']),
+        'disk_used_pct' => $disk['used_pct'],
+    ];
+}
+
+/**
  * 获取系统设置
  * 
  * @param string $key 设置键名

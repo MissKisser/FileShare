@@ -194,6 +194,7 @@ function getAdminDashboardData() {
 
     return [
         'stats' => $stats,
+        'disk' => getDiskStats(),
         'today_uploads' => $todayUploads,
         'today_downloads' => $todayDownloads,
         'recent_uploads' => $recentUploads,

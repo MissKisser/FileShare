@@ -63,6 +63,36 @@
                     </div>
                 </div>
 
+                <div class="admin-disk-card">
+                    <div class="admin-disk-header">
+                        <h2 style="margin: 0;">磁盘使用情况</h2>
+                        <span class="admin-disk-total">
+                            总容量 <?php echo htmlspecialchars($adminData['disk']['disk_total_formatted']); ?>
+                        </span>
+                    </div>
+                    <div class="disk-usage-bar">
+                        <div class="progress-track">
+                            <div class="progress-bar-fill" style="width: <?php echo $adminData['disk']['disk_used_pct']; ?>%"></div>
+                        </div>
+                        <div class="disk-usage-label">
+                            <span>
+                                已用 <?php echo htmlspecialchars($adminData['disk']['disk_used_formatted']); ?>
+                                （<?php echo number_format($adminData['disk']['disk_used_pct'], 1); ?>%）
+                            </span>
+                            <span>
+                                剩余 <?php echo htmlspecialchars($adminData['disk']['disk_free_formatted']); ?>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="admin-disk-detail">
+                        <span>
+                            上传目录占用：
+                            <strong><?php echo htmlspecialchars($adminData['disk']['upload_dir_size_formatted']); ?></strong>
+                            （占系统磁盘 <?php echo number_format($adminData['disk']['upload_dir_pct'], 2); ?>%）
+                        </span>
+                    </div>
+                </div>
+
                 <div class="admin-actions" style="margin: 20px 0; display: flex; align-items: center; gap: 12px;">
                     <button type="button" id="batchThumbnailBtn" class="btn btn-primary">批量生成缩略图</button>
                     <span id="batchThumbnailStatus" style="font-size: 13px; color: var(--text-secondary);"></span>
