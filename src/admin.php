@@ -155,6 +155,24 @@ function handleAdminRequest() {
             $adminPage = 'settings';
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 handleAdminSettingsSave();
+                if (
+                    isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
+                    strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
+                ) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    if (!empty($_SESSION['admin_error'])) {
+                        $msg = $_SESSION['admin_error'];
+                        unset($_SESSION['admin_error']);
+                        echo json_encode(['ok' => false, 'error' => $msg], JSON_UNESCAPED_UNICODE);
+                    } else {
+                        $msg = $_SESSION['admin_message'] ?? '已保存';
+                        unset($_SESSION['admin_message']);
+                        echo json_encode(['ok' => true, 'message' => $msg], JSON_UNESCAPED_UNICODE);
+                    }
+                    exit;
+                }
+                header('Location: /admin/settings');
+                exit;
             }
             $adminData = getAdminSettingsData();
             break;
@@ -247,11 +265,162 @@ function getAdminLogsData() {
 
 function getAdminSettingsData() {
     $db = getDB();
-    $settings = $db->query('SELECT * FROM settings ORDER BY key')->fetchAll();
+    $rows = $db->query('SELECT key, value, label, description, category, control_type FROM settings ORDER BY category, sort_order, key')->fetchAll();
+
+    // 类别中文标签
+    $categoryLabels = [
+        'site'     => '站点信息',
+        'upload'   => '上传限制',
+        'security' => '安全与会话',
+        'api'      => 'API',
+    ];
+
+    // 按 category 分组
+    $grouped = [];
+    foreach ($rows as $row) {
+        $cat = $row['category'] ?: 'other';
+        if (!isset($grouped[$cat])) {
+            $grouped[$cat] = [];
+        }
+        $grouped[$cat][] = $row;
+    }
+
+    // 把分组转为有序数组（保证站点→上传→安全→API 顺序，其他类别追加在末尾）
+    $orderedGroups = [];
+    foreach (['site', 'upload', 'security', 'api'] as $cat) {
+        if (!empty($grouped[$cat])) {
+            $orderedGroups[] = [
+                'key' => $cat,
+                'label' => $categoryLabels[$cat] ?? $cat,
+                'items' => $grouped[$cat],
+            ];
+            unset($grouped[$cat]);
+        }
+    }
+    foreach ($grouped as $cat => $items) {
+        $orderedGroups[] = [
+            'key' => $cat,
+            'label' => $categoryLabels[$cat] ?? $cat,
+            'items' => $items,
+        ];
+    }
 
     return [
-        'settings' => $settings,
+        'groups' => $orderedGroups,
     ];
+}
+
+/**
+ * 设置项校验规则
+ * 返回数组：每项 [type, min, max, pattern, hint]
+ *  - type: 'int' | 'bytes' | 'bool' | 'ip_list' | 'text' | 'string'
+ *  - min/max: 数值范围
+ *  - pattern: 正则（可选）
+ *  - hint: 错误提示前缀
+ */
+function getSettingValidationRules() {
+    return [
+        'site_title'             => ['type' => 'string', 'min' => 1, 'max' => 200, 'hint' => '网站标题'],
+        'site_subtitle'          => ['type' => 'string', 'max' => 500, 'hint' => '网站副标题'],
+        'default_duration'       => ['type' => 'int',    'min' => 0, 'max' => 31536000, 'hint' => '默认有效期'],
+        'max_file_size_normal'   => ['type' => 'bytes',  'min' => 1024, 'max' => 1073741824, 'hint' => '普通上传大小'],
+        'max_file_size_large'    => ['type' => 'bytes',  'min' => 1048576, 'max' => 10737418240, 'hint' => '分块上传大小'],
+        'admin_session_lifetime' => ['type' => 'int',    'min' => 60, 'max' => 2592000, 'hint' => '后台会话有效期'],
+        'api_enabled'            => ['type' => 'bool',   'hint' => '启用 API'],
+        'ip_blacklist'           => ['type' => 'ip_list', 'hint' => 'IP 黑名单'],
+    ];
+}
+
+/**
+ * 解析人类友好的字节数（支持 100KB / 2MB / 1GB）
+ * @param string $input
+ * @return int|false 字节数，无效返回 false
+ */
+function parseSizeInput($input) {
+    $input = trim($input);
+    if ($input === '') return false;
+    if (preg_match('/^(\d+(?:\.\d+)?)\s*([KMGT]?B)?$/i', $input, $m)) {
+        $num = (float)$m[1];
+        $unit = strtoupper($m[2] ?? 'B');
+        $mult = 1;
+        if ($unit === 'KB') $mult = 1024;
+        elseif ($unit === 'MB') $mult = 1024 * 1024;
+        elseif ($unit === 'GB') $mult = 1024 * 1024 * 1024;
+        elseif ($unit === 'TB') $mult = 1024 * 1024 * 1024 * 1024;
+        return (int)($num * $mult);
+    }
+    // 兼容纯数字（视为字节）
+    if (ctype_digit($input)) {
+        return (int)$input;
+    }
+    return false;
+}
+
+/**
+ * 校验并规范化一个设置值
+ * @return array [ok=>bool, value=>string, error=>string]
+ */
+function validateSettingValue($key, $raw) {
+    $rules = getSettingValidationRules();
+    $rule = isset($rules[$key]) ? $rules[$key] : ['type' => 'string', 'max' => 1000];
+    $type = $rule['type'];
+
+    if ($type === 'bool') {
+        $v = ($raw === '1' || $raw === 'on' || $raw === 'true') ? '1' : '0';
+        return ['ok' => true, 'value' => $v];
+    }
+
+    if ($type === 'int') {
+        $val = filter_var($raw, FILTER_VALIDATE_INT);
+        if ($val === false) {
+            return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 必须是整数'];
+        }
+        if (isset($rule['min']) && $val < $rule['min']) {
+            return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 不能小于 ' . $rule['min']];
+        }
+        if (isset($rule['max']) && $val > $rule['max']) {
+            return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 不能大于 ' . $rule['max']];
+        }
+        return ['ok' => true, 'value' => (string)$val];
+    }
+
+    if ($type === 'bytes') {
+        $bytes = parseSizeInput((string)$raw);
+        if ($bytes === false) {
+            return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 格式无效，例如 200MB / 2GB'];
+        }
+        if (isset($rule['min']) && $bytes < $rule['min']) {
+            return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 不能小于 ' . $rule['min'] . ' 字节'];
+        }
+        if (isset($rule['max']) && $bytes > $rule['max']) {
+            return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 不能大于 ' . $rule['max'] . ' 字节'];
+        }
+        return ['ok' => true, 'value' => (string)$bytes];
+    }
+
+    if ($type === 'ip_list') {
+        $lines = preg_split('/\r\n|\r|\n/', (string)$raw);
+        $clean = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') continue;
+            // 允许 IP 或 CIDR
+            if (filter_var($line, FILTER_VALIDATE_IP)) { $clean[] = $line; continue; }
+            if (preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $line)) { $clean[] = $line; continue; }
+            return ['ok' => false, 'error' => 'IP 黑名单包含无效项: ' . $line];
+        }
+        return ['ok' => true, 'value' => implode("\n", $clean)];
+    }
+
+    // string
+    $val = (string)$raw;
+    if (isset($rule['min']) && mb_strlen($val) < $rule['min']) {
+        return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 长度不足'];
+    }
+    if (isset($rule['max']) && mb_strlen($val) > $rule['max']) {
+        return ['ok' => false, 'error' => ($rule['hint'] ?? $key) . ' 不能超过 ' . $rule['max'] . ' 字符'];
+    }
+    return ['ok' => true, 'value' => $val];
 }
 
 function handleAdminSettingsSave() {
@@ -260,9 +429,23 @@ function handleAdminSettingsSave() {
     }
 
     $settings = $_POST['settings'] ?? [];
+    $errors = [];
+    $saved = 0;
+
     foreach ($settings as $key => $value) {
-        setSetting($key, $value);
+        $result = validateSettingValue($key, $value);
+        if (!$result['ok']) {
+            $errors[] = $result['error'];
+            continue;
+        }
+        setSetting($key, $result['value']);
+        $saved++;
     }
 
-    $_SESSION['message'] = '设置已保存';
+    if (!empty($errors)) {
+        $_SESSION['admin_error'] = implode('；', $errors);
+        return;
+    }
+
+    $_SESSION['admin_message'] = '已保存 ' . $saved . ' 项设置';
 }

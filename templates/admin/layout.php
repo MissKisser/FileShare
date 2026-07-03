@@ -181,21 +181,63 @@
                     </tbody>
                 </table>
 
-            <?php elseif ($adminPage === 'settings'): ?>
+<?php elseif ($adminPage === 'settings'): ?>
                 <h1>系统设置</h1>
-                <form method="POST" class="admin-settings-form">
+                <div id="settingsToast" class="settings-toast" hidden></div>
+
+                <form method="POST" id="settingsForm" class="admin-settings-form" novalidate>
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <?php foreach ($adminData['settings'] as $setting): ?>
-                        <div class="admin-setting-row">
-                            <label for="setting_<?php echo $setting['key']; ?>"><?php echo htmlspecialchars($setting['key']); ?></label>
-                            <?php if ($setting['key'] === 'ip_blacklist'): ?>
-                                <textarea name="settings[<?php echo $setting['key']; ?>]" id="setting_<?php echo $setting['key']; ?>" rows="3"><?php echo htmlspecialchars($setting['value']); ?></textarea>
-                            <?php else: ?>
-                                <input type="text" name="settings[<?php echo $setting['key']; ?>]" id="setting_<?php echo $setting['key']; ?>" value="<?php echo htmlspecialchars($setting['value']); ?>">
-                            <?php endif; ?>
-                        </div>
+
+                    <?php foreach ($adminData['groups'] as $group): ?>
+                        <section class="admin-settings-group" data-group="<?php echo htmlspecialchars($group['key']); ?>">
+                            <h2 class="admin-settings-group-title">
+                                <span class="admin-settings-group-bar"></span>
+                                <?php echo htmlspecialchars($group['label']); ?>
+                            </h2>
+                            <div class="admin-settings-items">
+                            <?php foreach ($group['items'] as $setting): ?>
+                                <?php
+                                    $key = $setting['key'];
+                                    $value = $setting['value'];
+                                    $label = $setting['label'] ?: $key;
+                                    $desc = $setting['description'] ?? '';
+                                    $type = $setting['control_type'] ?: 'text';
+                                    $fieldId = 'setting_' . $key;
+                                ?>
+                                <div class="admin-setting-row" data-key="<?php echo htmlspecialchars($key); ?>" data-type="<?php echo htmlspecialchars($type); ?>">
+                                    <div class="admin-setting-label-col">
+                                        <label for="<?php echo $fieldId; ?>" class="admin-setting-label"><?php echo htmlspecialchars($label); ?></label>
+                                        <?php if ($desc): ?>
+                                            <div class="admin-setting-desc"><?php echo htmlspecialchars($desc); ?></div>
+                                        <?php endif; ?>
+                                        <div class="admin-setting-key"><?php echo htmlspecialchars($key); ?></div>
+                                    </div>
+                                    <div class="admin-setting-control-col">
+                                        <?php if ($type === 'switch'): ?>
+                                            <label class="admin-switch">
+                                                <input type="checkbox" name="settings[<?php echo htmlspecialchars($key); ?>]" id="<?php echo $fieldId; ?>" value="1" <?php echo $value === '1' ? 'checked' : ''; ?>>
+                                                <span class="admin-switch-track"><span class="admin-switch-thumb"></span></span>
+                                                <span class="admin-switch-state" data-on="已启用" data-off="已关闭"><?php echo $value === '1' ? '已启用' : '已关闭'; ?></span>
+                                            </label>
+                                        <?php elseif ($type === 'textarea'): ?>
+                                            <textarea name="settings[<?php echo htmlspecialchars($key); ?>]" id="<?php echo $fieldId; ?>" rows="4" spellcheck="false"><?php echo htmlspecialchars($value); ?></textarea>
+                                        <?php elseif ($type === 'number'): ?>
+                                            <input type="number" name="settings[<?php echo htmlspecialchars($key); ?>]" id="<?php echo $fieldId; ?>" value="<?php echo htmlspecialchars($value); ?>" step="1">
+                                        <?php else: ?>
+                                            <input type="text" name="settings[<?php echo htmlspecialchars($key); ?>]" id="<?php echo $fieldId; ?>" value="<?php echo htmlspecialchars($value); ?>" spellcheck="false">
+                                        <?php endif; ?>
+                                        <div class="admin-setting-error" data-for="<?php echo htmlspecialchars($key); ?>" hidden></div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                            </div>
+                        </section>
                     <?php endforeach; ?>
-                    <button type="submit" class="btn btn-primary">保存设置</button>
+
+                    <div class="admin-settings-actions">
+                        <button type="submit" class="btn btn-primary" id="settingsSubmitBtn">保存设置</button>
+                        <span id="settingsHint" class="admin-settings-hint"></span>
+                    </div>
                 </form>
             <?php endif; ?>
         </main>
@@ -236,6 +278,142 @@
             .finally(function() {
                 btn.disabled = false;
                 btn.textContent = '批量生成缩略图';
+            });
+        });
+    })();
+
+    // ===== 系统设置页：AJAX 保存 + 客户端校验 + Toast =====
+    (function() {
+        var form = document.getElementById('settingsForm');
+        if (!form) return;
+
+        var submitBtn = document.getElementById('settingsSubmitBtn');
+        var hint = document.getElementById('settingsHint');
+        var toast = document.getElementById('settingsToast');
+
+        function showToast(message, type) {
+            if (!toast) return;
+            toast.textContent = message;
+            toast.className = 'settings-toast ' + (type || '');
+            toast.hidden = false;
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(function() { toast.hidden = true; }, 3500);
+        }
+
+        function setHint(text, type) {
+            if (!hint) return;
+            hint.textContent = text || '';
+            hint.className = 'admin-settings-hint' + (type ? ' ' + type : '');
+        }
+
+        function clearErrors() {
+            var rows = form.querySelectorAll('.admin-setting-row');
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].querySelectorAll('input, textarea').forEach(function(el){ el.classList.remove('invalid'); });
+                var err = rows[i].querySelector('.admin-setting-error');
+                if (err) { err.hidden = true; err.textContent = ''; }
+            }
+        }
+
+        function showFieldError(key, msg) {
+            var row = form.querySelector('.admin-setting-row[data-key="' + key + '"]');
+            if (!row) return;
+            var ctrl = row.querySelector('input, textarea');
+            if (ctrl) ctrl.classList.add('invalid');
+            var err = row.querySelector('.admin-setting-error');
+            if (err) { err.textContent = msg; err.hidden = false; }
+        }
+
+        // 客户端校验（与服务端规则一致的最简版）
+        function clientValidate() {
+            var ok = true;
+            clearErrors();
+            var rows = form.querySelectorAll('.admin-setting-row');
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var key = row.getAttribute('data-key');
+                var type = row.getAttribute('data-type');
+                var ctrl = row.querySelector('input, textarea');
+                if (!ctrl) continue;
+                var val;
+                if (type === 'switch') {
+                    val = ctrl.checked ? '1' : '0';
+                } else {
+                    val = ctrl.value;
+                }
+
+                if (type === 'int') {
+                    if (val === '' || isNaN(parseInt(val, 10))) {
+                        showFieldError(key, '必须是整数'); ok = false;
+                    }
+                } else if (type === 'bytes') {
+                    if (!/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB)?$/i.test(val.trim())) {
+                        showFieldError(key, '格式无效，例如 200MB / 2GB'); ok = false;
+                    }
+                } else if (type === 'text') {
+                    if (val.length > 1000) { showFieldError(key, '过长'); ok = false; }
+                }
+            }
+            return ok;
+        }
+
+        // 同步 switch 状态文字
+        form.addEventListener('change', function(e) {
+            var t = e.target;
+            if (t && t.type === 'checkbox') {
+                var label = t.closest('.admin-switch');
+                if (label) {
+                    var state = label.querySelector('.admin-switch-state');
+                    if (state) state.textContent = t.checked ? state.getAttribute('data-on') : state.getAttribute('data-off');
+                }
+            }
+        });
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (!clientValidate()) {
+                setHint('请修正标红字段', 'error');
+                showToast('请修正标红字段', 'error');
+                return;
+            }
+            submitBtn.disabled = true;
+            var origText = submitBtn.textContent;
+            submitBtn.textContent = '保存中…';
+            setHint('', '');
+
+            var formData = new FormData(form);
+
+            fetch(window.location.pathname + '?admin=settings', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData
+            })
+            .then(function(r) { return r.json().catch(function(){ return { ok: false, error: '返回数据格式错误' }; }); })
+            .then(function(data) {
+                if (data.ok) {
+                    setHint(data.message || '已保存', 'success');
+                    showToast(data.message || '已保存', 'success');
+                    clearErrors();
+                } else {
+                    var msg = data.error || '保存失败';
+                    if (data.errors && data.errors.length) {
+                        msg = data.errors.join('；');
+                        data.errors.forEach(function(errLine){
+                            // errLine 形如 "网站标题 xxx" —— 简单尝试匹配 key
+                            showFieldError('', ''); // 占位以避免静默
+                        });
+                    }
+                    setHint(msg, 'error');
+                    showToast(msg, 'error');
+                }
+            })
+            .catch(function(){
+                setHint('请求失败，请重试', 'error');
+                showToast('请求失败，请重试', 'error');
+            })
+            .finally(function(){
+                submitBtn.disabled = false;
+                submitBtn.textContent = origText;
             });
         });
     })();

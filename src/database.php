@@ -131,15 +131,16 @@ function initDB($db) {
 
     // 插入默认设置
     $now = time();
-    $stmt = $db->prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
+    $stmt = $db->prepare('INSERT INTO settings (key, value, updated_at, label, description, category, control_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     $defaults = [
-        ['site_title', '文件上传与文本存储系统', $now],
-        ['max_file_size_normal', (string)(200 * 1024 * 1024), $now],
-        ['max_file_size_large', (string)(2048 * 1024 * 1024), $now],
-        ['default_duration', '600', $now],
-        ['admin_session_lifetime', '7200', $now],
-        ['api_enabled', '1', $now],
-        ['ip_blacklist', '', $now],
+        ['site_title', '文件上传与文本存储系统', $now, '网站标题', '显示在浏览器标签和页面标题', 'site', 'text', 10],
+        ['site_subtitle', '上传文件或文本，生成分享链接', $now, '网站副标题', '显示在主页大标题下方', 'site', 'text', 20],
+        ['default_duration', '600', $now, '默认有效期（秒）', '上传项的默认过期时间，0 表示永不过期', 'upload', 'number', 30],
+        ['max_file_size_normal', (string)(200 * 1024 * 1024), $now, '普通上传大小上限', '字节数，可使用 1MB/200MB/2GB 等单位', 'upload', 'text', 40],
+        ['max_file_size_large', (string)(2048 * 1024 * 1024), $now, '分块上传大小上限', '超出此大小将走分块上传流程', 'upload', 'text', 50],
+        ['ip_blacklist', '', $now, 'IP 黑名单', '每行一个 IP 或 CIDR，留空表示不限制', 'security', 'textarea', 60],
+        ['admin_session_lifetime', '7200', $now, '后台会话有效期（秒）', '管理员登录态保持时间', 'security', 'number', 70],
+        ['api_enabled', '1', $now, '启用 API', '关闭后所有 /api/* 请求返回 403', 'api', 'switch', 80],
     ];
     foreach ($defaults as $row) {
         $stmt->execute($row);
@@ -176,6 +177,43 @@ function runIncrementalMigrations($db) {
     );
     if (!in_array('thumbnail_path', $itemCols)) {
         $db->exec("ALTER TABLE items ADD COLUMN thumbnail_path TEXT");
+    }
+
+    // settings 表元数据列（用于后台中文化 / 分组 / 控件类型）
+    $settingsCols = array_column(
+        $db->query("PRAGMA table_info(settings)")->fetchAll(),
+        'name'
+    );
+    if (!in_array('label', $settingsCols)) {
+        $db->exec("ALTER TABLE settings ADD COLUMN label TEXT");
+    }
+    if (!in_array('description', $settingsCols)) {
+        $db->exec("ALTER TABLE settings ADD COLUMN description TEXT");
+    }
+    if (!in_array('category', $settingsCols)) {
+        $db->exec("ALTER TABLE settings ADD COLUMN category TEXT");
+    }
+    if (!in_array('control_type', $settingsCols)) {
+        $db->exec("ALTER TABLE settings ADD COLUMN control_type TEXT");
+    }
+    if (!in_array('sort_order', $settingsCols)) {
+        $db->exec("ALTER TABLE settings ADD COLUMN sort_order INTEGER DEFAULT 0");
+    }
+
+    // 一次性回填已存在行的元数据（重复执行无副作用：仅当 label 为空时写入）
+    $meta = [
+        'site_title'             => ['网站标题',          '显示在浏览器标签和页面标题',           'site',   'text',     10],
+        'site_subtitle'          => ['网站副标题',        '显示在主页大标题下方',                 'site',   'text',     20],
+        'default_duration'       => ['默认有效期（秒）',   '上传项的默认过期时间，0 表示永不过期',  'upload', 'number',   30],
+        'max_file_size_normal'   => ['普通上传大小上限',   '字节数，可使用 1MB/200MB/2GB 等单位',  'upload', 'text',     40],
+        'max_file_size_large'    => ['分块上传大小上限',   '超出此大小将走分块上传流程',            'upload', 'text',     50],
+        'ip_blacklist'           => ['IP 黑名单',         '每行一个 IP 或 CIDR，留空表示不限制',  'security', 'textarea', 60],
+        'admin_session_lifetime' => ['后台会话有效期（秒）', '管理员登录态保持时间',                'security', 'number', 70],
+        'api_enabled'            => ['启用 API',          '关闭后所有 /api/* 请求返回 403',        'api',    'switch',   80],
+    ];
+    $stmt = $db->prepare('UPDATE settings SET label = ?, description = ?, category = ?, control_type = ?, sort_order = ? WHERE key = ? AND (label IS NULL OR label = "")');
+    foreach ($meta as $key => $info) {
+        $stmt->execute([$info[0], $info[1], $info[2], $info[3], $info[4], $key]);
     }
 }
 
