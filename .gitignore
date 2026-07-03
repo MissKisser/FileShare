@@ -26,6 +26,9 @@ uploads.bak/
 
 # Playwright
 .playwright-mcp/
+# Playwright MCP 默认保存到 cwd 的截图（调试用）
+/*.png
+!docs/**/*.png
 
 # Claude
 .claude/
