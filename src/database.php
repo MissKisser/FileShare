@@ -202,18 +202,27 @@ function runIncrementalMigrations($db) {
 
     // 一次性回填已存在行的元数据（重复执行无副作用：仅当 label 为空时写入）
     $meta = [
-        'site_title'             => ['网站标题',          '显示在浏览器标签和页面标题',           'site',   'text',     10],
-        'site_subtitle'          => ['网站副标题',        '显示在主页大标题下方',                 'site',   'text',     20],
-        'default_duration'       => ['默认有效期（秒）',   '上传项的默认过期时间，0 表示永不过期',  'upload', 'number',   30],
-        'max_file_size_normal'   => ['普通上传大小上限',   '字节数，可使用 1MB/200MB/2GB 等单位',  'upload', 'text',     40],
-        'max_file_size_large'    => ['分块上传大小上限',   '超出此大小将走分块上传流程',            'upload', 'text',     50],
-        'ip_blacklist'           => ['IP 黑名单',         '每行一个 IP 或 CIDR，留空表示不限制',  'security', 'textarea', 60],
-        'admin_session_lifetime' => ['后台会话有效期（秒）', '管理员登录态保持时间',                'security', 'number', 70],
-        'api_enabled'            => ['启用 API',          '关闭后所有 /api/* 请求返回 403',        'api',    'switch',   80],
+        'site_title'             => ['网站标题',          '显示在浏览器标签和页面标题',           'site',   'text',     10, '文件上传与文本存储系统'],
+        'site_subtitle'          => ['网站副标题',        '显示在主页大标题下方',                 'site',   'text',     20, '上传文件或文本，生成分享链接'],
+        'default_duration'       => ['默认有效期（秒）',   '上传项的默认过期时间，0 表示永不过期',  'upload', 'number',   30, '600'],
+        'max_file_size_normal'   => ['普通上传大小上限',   '字节数，可使用 1MB/200MB/2GB 等单位',  'upload', 'text',     40, (string)(200 * 1024 * 1024)],
+        'max_file_size_large'    => ['分块上传大小上限',   '超出此大小将走分块上传流程',            'upload', 'text',     50, (string)(2048 * 1024 * 1024)],
+        'ip_blacklist'           => ['IP 黑名单',         '每行一个 IP 或 CIDR，留空表示不限制',  'security', 'textarea', 60, ''],
+        'admin_session_lifetime' => ['后台会话有效期（秒）', '管理员登录态保持时间',                'security', 'number', 70, '7200'],
+        'api_enabled'            => ['启用 API',          '关闭后所有 /api/* 请求返回 403',        'api',    'switch',   80, '1'],
     ];
+
+    // 1) 回填已存在行的元数据
     $stmt = $db->prepare('UPDATE settings SET label = ?, description = ?, category = ?, control_type = ?, sort_order = ? WHERE key = ? AND (label IS NULL OR label = "")');
     foreach ($meta as $key => $info) {
         $stmt->execute([$info[0], $info[1], $info[2], $info[3], $info[4], $key]);
+    }
+
+    // 2) 插入新行（如 site_subtitle 在老数据库中不存在）
+    $ins = $db->prepare('INSERT OR IGNORE INTO settings (key, value, updated_at, label, description, category, control_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $now = time();
+    foreach ($meta as $key => $info) {
+        $ins->execute([$key, $info[6], $now, $info[0], $info[1], $info[2], $info[3], $info[4]]);
     }
 }
 
