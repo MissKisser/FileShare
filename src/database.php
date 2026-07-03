@@ -222,7 +222,7 @@ function runIncrementalMigrations($db) {
     $ins = $db->prepare('INSERT OR IGNORE INTO settings (key, value, updated_at, label, description, category, control_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     $now = time();
     foreach ($meta as $key => $info) {
-        $ins->execute([$key, $info[6], $now, $info[0], $info[1], $info[2], $info[3], $info[4]]);
+        $ins->execute([$key, $info[5], $now, $info[0], $info[1], $info[2], $info[3], $info[4]]);
     }
 }
 
