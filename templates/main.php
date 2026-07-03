@@ -165,10 +165,6 @@
                 <div class="stat-label">总项目数</div>
                 <div class="stat-value"><?php echo $stats['total_items']; ?></div>
             </div>
-            <div class="stat-card">
-                <div class="stat-label">磁盘占用</div>
-                <div class="stat-value"><?php echo formatSize($stats['disk_usage']); ?></div>
-            </div>
         </div>
 
         <?php if (isset($message)): ?>
