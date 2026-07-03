@@ -886,8 +886,89 @@ function handlePreview() {
         exit;
     }
 
-    // 其他类型不支持在线预览
-    header('Location: ' . $_SERVER['PHP_SELF']);
+    // 文本类文件：用 Prism.js 语法高亮预览
+    $textExts = array('html', 'htm', 'txt', 'css', 'js', 'json', 'xml', 'log', 'csv',
+                      'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp',
+                      'sh', 'bat', 'ps1', 'sql', 'yaml', 'yml', 'toml', 'ini',
+                      'conf', 'cfg', 'env', 'gitignore', 'dockerfile',
+                      'php', 'ts', 'tsx', 'jsx', 'vue', 'svelte');
+    if (in_array($ext, $textExts)) {
+        $textContent = file_get_contents($item['path']);
+        // 限制预览大小（2MB）
+        if (strlen($textContent) > 2 * 1024 * 1024) {
+            $textContent = substr($textContent, 0, 2 * 1024 * 1024) . "\n\n... 文件过大，仅显示前 2MB ...";
+        }
+        $pageTitle = htmlspecialchars($item['name'], ENT_QUOTES, 'UTF-8');
+        $textJson = json_encode($textContent, JSON_UNESCAPED_UNICODE);
+        $baseUrl = getBaseUrl();
+        $theme = isset($_SESSION['theme']) ? $_SESSION['theme'] : '';
+        $isDark = $theme === 'dark' || (empty($theme) && (
+            isset($_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME']) &&
+            $_SERVER['HTTP_SEC_CH_PREFERS_COLOR_SCHEME'] === 'dark'
+        ));
+        $themeAttr = $isDark ? ' data-theme="dark"' : '';
+        $cssDir = $baseUrl . 'assets/css/';
+        $v = time();
+
+        // Prism 语言映射
+        $langMap = array(
+            'html' => 'markup', 'htm' => 'markup', 'xml' => 'markup', 'svg' => 'markup',
+            'js' => 'javascript', 'ts' => 'typescript', 'tsx' => 'tsx', 'jsx' => 'jsx',
+            'py' => 'python', 'rb' => 'ruby', 'go' => 'go', 'rs' => 'rust',
+            'java' => 'java', 'c' => 'c', 'cpp' => 'cpp', 'h' => 'c', 'hpp' => 'cpp',
+            'sh' => 'bash', 'bat' => 'batch', 'ps1' => 'powershell',
+            'sql' => 'sql', 'json' => 'json', 'yaml' => 'yaml', 'yml' => 'yaml',
+            'php' => 'php', 'css' => 'css', 'vue' => 'markup', 'svelte' => 'markup',
+            'toml' => 'ini', 'ini' => 'ini', 'env' => 'bash',
+            'conf' => 'bash', 'cfg' => 'bash', 'csv' => 'csv',
+        );
+        $prismLang = isset($langMap[$ext]) ? $langMap[$ext] : 'plaintext';
+
+        echo '<!DOCTYPE html><html lang="zh-CN"' . $themeAttr . '><head>' .
+            '<meta charset="UTF-8">' .
+            '<meta name="viewport" content="width=device-width,initial-scale=1.0">' .
+            '<title>' . $pageTitle . ' - 预览</title>' .
+            '<link rel="icon" type="image/x-icon" href="/favicon.ico">' .
+            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">' .
+            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">' .
+            '<link rel="stylesheet" href="' . $cssDir . 'variables.css?v=' . $v . '">' .
+            '<link rel="stylesheet" href="' . $cssDir . 'reset.css?v=' . $v . '">' .
+            '<style>' .
+            'body{background:var(--bg-primary,#fff);color:var(--text-primary,#111);font-family:Noto Sans SC,sans-serif;margin:0}' .
+            '.preview-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--card-bg,#fff);border-bottom:1px solid var(--border-color,#e5e7eb);box-shadow:0 2px 4px rgba(0,0,0,.05)}' .
+            '.preview-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary,#666);text-decoration:none;font-size:14px;margin-right:auto}' .
+            '.preview-back:hover{color:var(--accent-blue,#3b82f6)}' .
+            '.preview-download{text-decoration:none;background:var(--bg-secondary,#f5f5f5);border:1px solid var(--border-color,#e5e7eb);border-radius:4px;padding:6px 12px;font-size:14px;color:var(--text-primary,#111)}' .
+            '.preview-body{max-width:100%;padding:0;overflow:auto}' .
+            'pre[class*=language-]{margin:0;border-radius:0;font-size:13px}' .
+            '</style></head><body>' .
+            '<div class="preview-header">' .
+            '<a href="' . $baseUrl . '?s=' . htmlspecialchars($item['share_code']) . '" class="preview-back">&larr; 返回</a>' .
+            '<a href="' . $baseUrl . '?download=' . $item['id'] . '" class="preview-download">下载</a>' .
+            '</div>' .
+            '<div class="preview-body">' .
+            '<pre class="line-numbers"><code id="previewCode" class="language-' . $prismLang . '"></code></pre>' .
+            '</div>' .
+            '<script>var previewContent = ' . $textJson . ';</script>' .
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>' .
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>' .
+            '<script>' .
+            '(function(){' .
+            'var el=document.getElementById("previewCode");' .
+            'el.textContent=previewContent;' .
+            'Prism.highlightElement(el);' .
+            '})();' .
+            '</script>' .
+            '</body></html>';
+        exit;
+    }
+
+    // 其他类型不支持在线预览，重定向回分享页
+    if (!empty($item['share_code'])) {
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?s=' . $item['share_code']);
+    } else {
+        header('Location: ' . $_SERVER['PHP_SELF']);
+    }
     exit;
 }
 
@@ -1084,5 +1165,10 @@ function getBaseUrl() {
     $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
     $path = dirname($_SERVER['SCRIPT_NAME']);
-    return $protocol . '://' . $host . ($path === '/' ? '' : $path);
+    $base = $protocol . '://' . $host . ($path === '/' ? '' : $path);
+    // 确保末尾有斜杠，避免拼接 assets/css/... 时缺少分隔符
+    if (substr($base, -1) !== '/') {
+        $base .= '/';
+    }
+    return $base;
 }
