@@ -161,7 +161,13 @@ function handleAdminRequest() {
                     (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
                     (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
                 );
-                error_log('DEBUG settings POST: isAjax=' . ($isAjax ? '1' : '0') . ' GET_ajax=' . ($_GET['ajax'] ?? '(none)') . ' REQUEST_URI=' . ($_SERVER['REQUEST_URI'] ?? ''));
+                @file_put_contents('/tmp/settings_debug.log',
+                    '[' . date('H:i:s') . '] isAjax=' . ($isAjax ? '1' : '0') .
+                    ' GET_ajax=' . ($_GET['ajax'] ?? '(none)') .
+                    ' REQUEST_URI=' . ($_SERVER['REQUEST_URI'] ?? '') .
+                    ' METHOD=' . $_SERVER['REQUEST_METHOD'] . "\n",
+                    FILE_APPEND
+                );
                 if ($isAjax) {
                     header('Content-Type: application/json; charset=utf-8');
                     if (!empty($_SESSION['admin_error'])) {
