@@ -2291,8 +2291,6 @@ document.addEventListener('DOMContentLoaded', function() {
             panel = document.createElement('div');
             panel.className = 'stats-panel';
             panel.innerHTML = '<h3>存储统计</h3>' +
-                '<div class="disk-usage-bar"><div class="progress-track"><div class="progress-bar-fill" id="diskUsageBar" style="width:0%"></div></div>' +
-                '<div class="disk-usage-label"><span id="diskUsed">计算中...</span><span id="diskTotal"></span></div></div>' +
                 '<div class="stats-charts">' +
                 '<div class="stats-chart-container"><h4>类型分布</h4><canvas id="pieChart" width="350" height="250"></canvas></div>' +
                 '<div class="stats-chart-container"><h4>近7日上传</h4><canvas id="barChart" width="350" height="250"></canvas></div>' +
@@ -2308,19 +2306,6 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(function(data) {
                 if (!data.success) return;
                 var stats = data.stats;
-
-                // 磁盘使用进度条
-                var diskBar = document.getElementById('diskUsageBar');
-                var diskUsed = document.getElementById('diskUsed');
-                if (diskBar && diskUsed) {
-                    diskUsed.textContent = '已用: ' + stats.disk_usage_formatted;
-                    // 假设上限 5GB
-                    var maxBytes = 5 * 1024 * 1024 * 1024;
-                    var pct = Math.min(100, (stats.disk_usage / maxBytes) * 100);
-                    diskBar.style.width = pct.toFixed(1) + '%';
-                    if (pct > 80) diskBar.style.background = 'var(--accent-red)';
-                    else if (pct > 60) diskBar.style.background = 'var(--accent-amber)';
-                }
 
                 // 饼图
                 if (typeof FileShareCharts !== 'undefined') {

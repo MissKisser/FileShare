@@ -407,7 +407,6 @@ function getStorageStats() {
         'file_count' => 0,
         'text_count' => 0,
         'total_size' => 0,
-        'disk_usage' => 0,
         'category_sizes' => [],
         'daily_uploads' => [],
     ];
@@ -420,9 +419,6 @@ function getStorageStats() {
     // 文件总大小
     $sizeResult = $db->query("SELECT COALESCE(SUM(size), 0) as total FROM items WHERE type = 'file'")->fetch();
     $stats['total_size'] = $sizeResult['total'];
-
-    // 磁盘实际占用（扫描 uploads 目录）
-    $stats['disk_usage'] = getDirectorySize(UPLOAD_DIR);
 
     // 按类型分类大小
     $categories = ['image', 'video', 'audio', 'doc', 'code', 'archive'];
@@ -460,27 +456,6 @@ function getStorageStats() {
     $stats['daily_uploads'] = $stmt->fetchAll();
 
     return $stats;
-}
-
-/**
- * 计算目录大小
- * 
- * @param string $dir
- * @return int 字节数
- */
-function getDirectorySize($dir) {
-    $size = 0;
-    if (!is_dir($dir)) return 0;
-
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS)
-    );
-    foreach ($iterator as $file) {
-        if ($file->isFile()) {
-            $size += $file->getSize();
-        }
-    }
-    return $size;
 }
 
 /**

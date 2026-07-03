@@ -271,8 +271,6 @@ curl -X POST 'https://your-domain.com/?api=text' \
     "text_count": 12,
     "total_size": 104857600,
     "total_size_formatted": "100 MB",
-    "disk_usage": 104857600,
-    "disk_usage_formatted": "100 MB",
     "category_sizes": {
       "image": 52428800,
       "video": 31457280,
@@ -494,7 +492,7 @@ curl -s "${BASE_URL}/?api=items&per_page=5" \
 # 5. 获取统计
 echo -e "\n=== 统计信息 ==="
 curl -s "${BASE_URL}/?api=stats" \
-  -H "Authorization: Bearer $TOKEN" | jq '.stats | {total_items, disk_usage_formatted}'
+  -H "Authorization: Bearer $TOKEN" | jq '.stats | {total_items, total_size_formatted}'
 
 # 6. 刷新 Token
 echo -e "\n=== 刷新 Token ==="

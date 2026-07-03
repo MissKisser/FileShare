@@ -54,10 +54,6 @@
                         <div class="admin-stat-value"><?php echo $adminData['stats']['text_count']; ?></div>
                     </div>
                     <div class="admin-stat-card">
-                        <div class="admin-stat-label">磁盘占用</div>
-                        <div class="admin-stat-value"><?php echo formatSize($adminData['stats']['disk_usage']); ?></div>
-                    </div>
-                    <div class="admin-stat-card">
                         <div class="admin-stat-label">今日上传</div>
                         <div class="admin-stat-value"><?php echo $adminData['today_uploads']; ?></div>
                     </div>

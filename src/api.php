@@ -561,8 +561,6 @@ function handleApiStats() {
             'text_count' => $stats['text_count'],
             'total_size' => $stats['total_size'],
             'total_size_formatted' => formatSize($stats['total_size']),
-            'disk_usage' => $stats['disk_usage'],
-            'disk_usage_formatted' => formatSize($stats['disk_usage']),
             'category_sizes' => $stats['category_sizes'],
             'daily_uploads' => $stats['daily_uploads'],
         ],
