@@ -7,8 +7,8 @@
     <title>管理员登录 - <?php echo htmlspecialchars(SITE_TITLE); ?></title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/variables.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/reset.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/variables.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/reset.css?v=<?php echo time(); ?>">
     <style>
         body {
             display: flex;

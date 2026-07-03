@@ -7,11 +7,11 @@
     <title>管理后台 - <?php echo htmlspecialchars(SITE_TITLE); ?></title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/variables.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/reset.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/layout.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/components.css?v=<?php echo time(); ?>">
-    <link rel="stylesheet" href="assets/css/admin.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/variables.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/reset.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/layout.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/components.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="/assets/css/admin.css?v=<?php echo time(); ?>">
 </head>
 <body>
     <div class="admin-layout">
