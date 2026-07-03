@@ -111,6 +111,30 @@ function handleAdminRequest() {
     $db = getDB();
     $db->prepare('DELETE FROM admin_sessions WHERE expires_at < ?')->execute([time()]);
 
+    // ===== 批量缩略图 AJAX =====
+    if ($page === 'batch-thumbnails') {
+        header('Content-Type: application/json; charset=utf-8');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(array('error' => '仅支持 POST'), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        require_once __DIR__ . '/thumbnail.php';
+        $stmt = $db->query('SELECT id FROM items WHERE type = \'file\' AND (thumbnail_path IS NULL OR thumbnail_path = \'\') ORDER BY id ASC');
+        $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $results = array('total' => count($ids), 'success' => 0, 'failed' => 0, 'details' => array());
+        foreach ($ids as $id) {
+            $thumbVal = generateItemThumbnail($id);
+            if ($thumbVal && strpos($thumbVal, 'failed:') !== 0) {
+                $results['success']++;
+            } else {
+                $results['failed']++;
+            }
+            $results['details'][] = array('id' => $id, 'thumbnail_path' => $thumbVal);
+        }
+        echo json_encode($results, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     switch ($page) {
         case 'dashboard':
             $adminPage = 'dashboard';

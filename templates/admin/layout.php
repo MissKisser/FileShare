@@ -67,6 +67,11 @@
                     </div>
                 </div>
 
+                <div class="admin-actions" style="margin: 20px 0; display: flex; align-items: center; gap: 12px;">
+                    <button type="button" id="batchThumbnailBtn" class="btn btn-primary">批量生成缩略图</button>
+                    <span id="batchThumbnailStatus" style="font-size: 13px; color: var(--text-secondary);"></span>
+                </div>
+
                 <h2>最近上传</h2>
                 <table class="log-table">
                     <thead><tr><th>时间</th><th>文件</th><th>大小</th><th>IP</th></tr></thead>
@@ -169,5 +174,45 @@
             <?php endif; ?>
         </main>
     </div>
+    <script>
+    (function() {
+        var btn = document.getElementById('batchThumbnailBtn');
+        var status = document.getElementById('batchThumbnailStatus');
+        if (!btn || !status) return;
+
+        btn.addEventListener('click', function() {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.textContent = '生成中…';
+            status.textContent = '';
+
+            var formData = new FormData();
+            formData.append('csrf_token', '<?php echo $_SESSION['csrf_token']; ?>');
+
+            fetch('?admin=batch-thumbnails', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    status.textContent = '错误: ' + data.error;
+                    status.style.color = 'var(--accent-red)';
+                } else {
+                    status.textContent = '完成！成功 ' + data.success + ' 个，失败 ' + data.failed + ' 个，共 ' + data.total + ' 个';
+                    status.style.color = data.failed > 0 ? 'var(--accent-orange, #f59e0b)' : 'var(--accent-green, #22c55e)';
+                }
+            })
+            .catch(function() {
+                status.textContent = '请求失败，请重试';
+                status.style.color = 'var(--accent-red)';
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.textContent = '批量生成缩略图';
+            });
+        });
+    })();
+    </script>
 </body>
 </html>
