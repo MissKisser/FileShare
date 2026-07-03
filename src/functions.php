@@ -66,6 +66,12 @@ function cleanExpired(&$data = null) {
         }
     }
 
+    // 先删除关联的日志记录（外键约束），再删除 items
+    $expiredIds = array_column($expiredItems, 'id');
+    $idPlaceholders = implode(',', array_fill(0, count($expiredIds), '?'));
+    $db->prepare("DELETE FROM download_logs WHERE item_id IN ($idPlaceholders)")->execute($expiredIds);
+    $db->prepare("DELETE FROM upload_logs WHERE item_id IN ($idPlaceholders)")->execute($expiredIds);
+
     // 批量删除过期记录
     $delStmt = $db->prepare('DELETE FROM items WHERE expire > 0 AND expire < ?');
     $delStmt->execute([$now]);
