@@ -40,7 +40,9 @@ function initDB($db) {
     // 检查是否已初始化（通过 items 表是否存在判断）
     $tables = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='items'")->fetchAll();
     if (!empty($tables)) {
-        return; // 已初始化
+        // 已初始化，仍需运行增量迁移
+        runIncrementalMigrations($db);
+        return;
     }
 
     $db->exec("
@@ -141,6 +143,39 @@ function initDB($db) {
     ];
     foreach ($defaults as $row) {
         $stmt->execute($row);
+    }
+
+    // 运行增量迁移（首次建表后也需补齐新字段）
+    runIncrementalMigrations($db);
+}
+
+/**
+ * 增量迁移：幂等添加新字段
+ */
+function runIncrementalMigrations($db) {
+    $logCols = array_column(
+        $db->query("PRAGMA table_info(upload_logs)")->fetchAll(),
+        'name'
+    );
+    if (!in_array('session_id', $logCols)) {
+        $db->exec("ALTER TABLE upload_logs ADD COLUMN session_id TEXT");
+    }
+    if (!in_array('chunk_count', $logCols)) {
+        $db->exec("ALTER TABLE upload_logs ADD COLUMN chunk_count INTEGER");
+    }
+    if (!in_array('received_chunks', $logCols)) {
+        $db->exec("ALTER TABLE upload_logs ADD COLUMN received_chunks TEXT");
+    }
+    if (!in_array('status', $logCols)) {
+        $db->exec("ALTER TABLE upload_logs ADD COLUMN status TEXT DEFAULT 'uploading'");
+    }
+
+    $itemCols = array_column(
+        $db->query("PRAGMA table_info(items)")->fetchAll(),
+        'name'
+    );
+    if (!in_array('thumbnail_path', $itemCols)) {
+        $db->exec("ALTER TABLE items ADD COLUMN thumbnail_path TEXT");
     }
 }
 
