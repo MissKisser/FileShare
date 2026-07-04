@@ -537,7 +537,12 @@ function handleApiTextSave() {
     ]);
 
     $itemId = $db->lastInsertId();
-    logUploadToDb($itemId, '文本内容 (' . mb_substr($text, 0, 20) . '...)', strlen($text), $duration);
+    // 日志不记录原文（隐私/安全考虑，密码保护项尤其不能漏）
+    $logLabel = '文本片段';
+    if (!empty($accessPassword)) {
+        $logLabel .= ' [密码保护]';
+    }
+    logUploadToDb($itemId, $logLabel, strlen($text), $duration);
 
     apiResponse([
         'success' => true,
@@ -598,6 +603,9 @@ function formatItemForApi($item) {
         'time_formatted' => date('Y-m-d H:i:s', $item['time'] ?? 0),
         'expire' => intval($item['expire'] ?? 0),
         'expire_formatted' => formatExpire($item['expire'] ?? 0),
-        'content_preview' => $item['type'] === 'text' ? mb_substr($item['content'] ?? '', 0, 200) : null,
+        // 受密码保护的文本不返回预览内容；元数据（has_password 等）保留
+        'content_preview' => ($item['type'] === 'text' && empty($item['password']))
+            ? mb_substr($item['content'] ?? '', 0, 200)
+            : null,
     ];
 }

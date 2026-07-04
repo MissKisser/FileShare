@@ -316,11 +316,20 @@ function logUploadToDb($itemId, $filename, $filesize, $duration) {
     ]);
 
     // 清理旧日志（保留最近 500 条）
-    $db->exec('
-        DELETE FROM upload_logs WHERE id NOT IN (
+    // 使用两步清理：先查 id，再 DELETE — 避免 SQLite 同表子查询限制
+    try {
+        $idsToKeep = $db->query('
             SELECT id FROM upload_logs ORDER BY upload_time DESC LIMIT 500
-        )
-    ');
+        ')->fetchAll(PDO::FETCH_COLUMN);
+        if (!empty($idsToKeep)) {
+            $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
+            $db->prepare("DELETE FROM upload_logs WHERE id NOT IN ($placeholders)")
+               ->execute($idsToKeep);
+        }
+    } catch (Exception $e) {
+        // 清理失败不影响主流程
+        error_log('logUploadToDb cleanup failed: ' . $e->getMessage());
+    }
 }
 
 /**

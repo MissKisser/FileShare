@@ -105,6 +105,12 @@ function handleRequest() {
         exit;
     }
 
+    // ===== 分享密码验证 POST 必须在分享页渲染之前匹配（避免被 ?s= 吞掉） =====
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_share_password') {
+        handleSharePasswordVerify();
+        return;
+    }
+
     // ===== 分享页面路由（F1） =====
     if (isset($_GET['s'])) {
         handleSharePage();
@@ -179,11 +185,7 @@ function handleRequest() {
         return;
     }
 
-    // ===== 分享密码验证路由（F2） =====
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_share_password') {
-        handleSharePasswordVerify();
-        return;
-    }
+    // 分享密码验证已在 handleRequest 顶部（?s= 之前）处理，这里不再重复
 
     // ===== 大文件密码预校验请求（AJAX 调用） =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_large_file_password') {
@@ -553,7 +555,13 @@ function handleTextSave() {
         $itemId = $db->lastInsertId();
 
         // 记录日志
-        logUploadToDb($itemId, '文本内容 (' . mb_substr($text, 0, 20) . '...)', strlen($text), $duration);
+        // 注意：出于隐私/安全考虑，日志不再保存文本原文（前 20 字符可能含敏感信息，
+        // 密码保护项尤为严重）。只记录类型 + 大小 + 是否带密码。
+        $logLabel = '文本片段';
+        if (!empty($accessPassword)) {
+            $logLabel .= ' [密码保护]';
+        }
+        logUploadToDb($itemId, $logLabel, strlen($text), $duration);
 
         $_SESSION['message'] = '文本保存成功！分享链接：' . getBaseUrl() . '?s=' . $shareCode;
     }

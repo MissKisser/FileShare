@@ -37,22 +37,117 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     <link rel="stylesheet" href="/assets/css/gallery.css?v=<?php echo APP_VERSION; ?>">
     <style>
         .share-page {
-            max-width: 680px;
-            margin: 60px auto;
+            max-width: 960px;
+            margin: 40px auto;
             padding: 0 20px;
         }
         .share-card {
             background: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: var(--radius-lg);
-            padding: 32px;
+            padding: 28px;
             box-shadow: var(--card-shadow);
+        }
+        /* 两栏布局：左侧主内容，右侧侧边栏（≥768px 横向） */
+        .share-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 280px;
+            gap: 28px;
+            align-items: start;
+        }
+        .share-main {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .share-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            position: sticky;
+            top: 20px;
+        }
+        .share-sidebar-section + .share-sidebar-section {
+            padding-top: 16px;
+            border-top: 1px dashed var(--card-border);
+        }
+        .share-sidebar-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+        .share-link-box {
+            display: flex;
+            gap: 6px;
+        }
+        .share-link-box input {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 10px;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-sm);
+            background: var(--card-bg);
+            color: var(--text-primary);
+            font-family: JetBrains Mono, monospace;
+            font-size: 12px;
+        }
+        .share-link-box .btn-sm {
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+        .share-qr-section .share-qr {
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .share-qr canvas,
+        .share-qr img {
+            display: block;
+            margin: 0 auto;
+            border-radius: 8px;
+            max-width: 100%;
+            height: auto;
+        }
+        .share-qr {
+            text-align: center;
+        }
+        .share-meta-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .share-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .share-meta-item svg {
+            flex-shrink: 0;
+            color: var(--text-muted);
+        }
+        .share-meta-item .countdown-value {
+            color: var(--accent-blue);
+            font-family: JetBrains Mono, monospace;
+            font-weight: 600;
+        }
+        .share-meta-item.share-meta-countdown[data-expired="1"] .countdown-value {
+            color: var(--accent-red);
         }
         .share-header {
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 20px;
         }
         .share-header svg {
             flex-shrink: 0;
@@ -63,52 +158,17 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             font-weight: 600;
             color: var(--text-primary);
             word-break: break-all;
-        }
-        .share-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px 16px;
-            color: var(--text-secondary);
-            font-size: 13px;
-            margin-bottom: 20px;
-        }
-        .share-meta span {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
+            margin: 0;
         }
         .share-actions {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
-            margin-top: 24px;
         }
         .share-actions .btn {
             flex: 1;
             min-width: 120px;
             text-align: center;
-        }
-        .share-link-box {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-        }
-        .share-link-box input {
-            flex: 1;
-            padding: 10px 14px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            font-family: JetBrains Mono, monospace;
-            font-size: 13px;
-        }
-        .share-qr {
-            text-align: center;
-            margin-top: 20px;
-        }
-        .share-qr canvas {
-            border-radius: 8px;
         }
         .share-password-form {
             text-align: center;
@@ -127,7 +187,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             width: 100%;
             max-width: 300px;
             padding: 10px 14px;
-            border: 1px solid var(--border-color);
+            border: 1px solid var(--card-border);
             border-radius: var(--radius-md);
             background: var(--input-bg);
             color: var(--text-primary);
@@ -156,24 +216,70 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
         .share-error p {
             color: var(--text-secondary);
         }
+        /* 文本内容：工具栏 + 预览框 */
         .share-text-content {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
             border-radius: var(--radius-md);
-            padding: 16px;
-            overflow-x: auto;
-            max-height: 500px;
-            overflow-y: auto;
+            overflow: hidden;
         }
-        .share-text-content pre {
-            margin: 0;
+        .share-text-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--card-border);
+            gap: 12px;
+        }
+        .share-text-stats {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
             font-family: JetBrains Mono, monospace;
+        }
+        .share-text-stats .stat-label {
+            color: var(--text-muted);
+        }
+        .share-text-stats .stat-value {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        .share-text-pre {
+            margin: 0;
+            padding: 18px 20px;
+            background: var(--card-bg);
+            max-height: 480px;
+            overflow: auto;
             font-size: 13px;
             line-height: 1.6;
+        }
+        .share-text-pre code {
+            font-family: JetBrains Mono, monospace;
             color: var(--text-primary);
             white-space: pre-wrap;
-            word-break: break-all;
+            word-break: break-word;
+            background: transparent;
         }
+        /* 移动端：单列堆叠，侧边栏在上/下都可（这里选择先内容后侧边栏） */
+        @media (max-width: 768px) {
+            .share-page { max-width: 100%; }
+            .share-layout {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 20px;
+            }
+            .share-sidebar {
+                position: static;
+                order: -1; /* 移动端侧边栏置顶 */
+            }
+            .share-text-pre {
+                max-height: 360px;
+                font-size: 12px;
+            }
+        }
+    </style>
         .share-download-count {
             display: inline-flex;
             align-items: center;
@@ -355,92 +461,131 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                 </form>
             </div>
         <?php else: ?>
-            <!-- 已解锁 / 无密码 -->
-            <div class="share-card">
-                <div class="share-header">
-                    <?php if ($item['type'] === 'file'): ?>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
-                            <polyline points="13,2 13,9 20,9"/>
-                        </svg>
-                        <h1><?php echo htmlspecialchars($item['name']); ?></h1>
-                    <?php else: ?>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14,2 14,8 20,8"/>
-                            <line x1="16" y1="13" x2="8" y2="13"/>
-                            <line x1="16" y1="17" x2="8" y2="17"/>
-                        </svg>
-                        <h1>文本片段</h1>
-                    <?php endif; ?>
-                </div>
-
-                <div class="share-meta">
-                    <?php if ($item['type'] === 'file'): ?>
-                        <span><?php echo formatSize($item['size']); ?></span>
-                    <?php endif; ?>
-                    <span>上传于 <?php echo date('Y-m-d H:i', $item['time']); ?></span>
-                    <span>有效期: <?php echo formatExpire($item['expire']); ?></span>
-                    <?php if ($item['download_count'] > 0): ?>
-                        <span class="share-download-count">↓ <?php echo $item['download_count']; ?> 次访问</span>
-                    <?php endif; ?>
-                </div>
-
-                <?php if ($item['type'] === 'text'): ?>
-                    <div class="share-text-content">
-                        <pre class="line-numbers"><code id="shareTextContent" class="language-plaintext"><?php echo htmlspecialchars($item['content'] ?? ''); ?></code></pre>
-                    </div>
-                <?php endif; ?>
-
-                <?php
-                    // 图片内联预览（A2 灯箱）
-                    $imageExts = array('jpg','jpeg','png','gif','webp','bmp','svg','ico');
-                    $fileExt = strtolower(pathinfo($item['name'] ?? '', PATHINFO_EXTENSION));
-                    if ($item['type'] === 'file' && in_array($fileExt, $imageExts)):
-                ?>
-                    <div class="share-image-preview">
-                        <img src="?preview=<?php echo htmlspecialchars($item['share_code']); ?>"
-                             alt="<?php echo htmlspecialchars($item['name']); ?>"
-                             data-gallery>
-                    </div>
-                <?php endif; ?>
-
-                <?php
-                    // 压缩包在线预览（B3）
-                    $archiveExts = array('zip','tar','gz','tgz');
-                    if ($item['type'] === 'file' && in_array($fileExt, $archiveExts)):
-                ?>
-                    <div id="archivePreviewContainer" class="archive-preview-container" style="display:none"></div>
-                <?php endif; ?>
-
-                <div class="share-actions">
-                    <?php if ($item['type'] === 'file'): ?>
-                        <a href="?download=<?php echo $item['id']; ?>" class="btn btn-primary">下载文件</a>
-                        <?php
-                            $previewableExts = array_merge(
-                                array('jpg','jpeg','png','gif','webp','bmp','svg','ico'),
-                                array('mp4','webm','ogv','ogg'),
-                                array('mp3','wav','aac','flac','m4a','opus'),
-                                array('pdf','md','markdown')
-                            );
-                            if (in_array($fileExt, $previewableExts)):
-                        ?>
-                            <a href="?preview=<?php echo $item['share_code']; ?>" class="btn btn-secondary" target="_blank">在线预览</a>
-                        <?php elseif (in_array($fileExt, $archiveExts)): ?>
-                            <button type="button" class="btn btn-secondary" id="archivePreviewBtn" data-item-id="<?php echo $item['id']; ?>">在线预览</button>
+            <!-- 已解锁 / 无密码：左侧主内容 + 右侧侧边栏（链接+二维码+元信息） -->
+            <div class="share-card share-layout">
+                <div class="share-main">
+                    <div class="share-header">
+                        <?php if ($item['type'] === 'file'): ?>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                                <polyline points="13,2 13,9 20,9"/>
+                            </svg>
+                            <h1><?php echo htmlspecialchars($item['name']); ?></h1>
+                        <?php else: ?>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14,2 14,8 20,8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                            </svg>
+                            <h1>文本片段</h1>
                         <?php endif; ?>
-                    <?php else: ?>
-                        <button type="button" class="btn btn-primary" id="shareCopyBtn">复制文本</button>
+                    </div>
+
+                    <?php if ($item['type'] === 'text'): ?>
+                        <div class="share-text-content">
+                            <div class="share-text-toolbar">
+                                <span class="share-text-stats">
+                                    <span class="stat-label">字符</span>
+                                    <span class="stat-value" id="shareTextLength"><?php echo mb_strlen($item['content'] ?? ''); ?></span>
+                                    <span class="stat-label">·</span>
+                                    <span class="stat-label">行</span>
+                                    <span class="stat-value" id="shareTextLines"><?php echo substr_count($item['content'] ?? '', "\n") + 1; ?></span>
+                                </span>
+                                <button type="button" class="btn btn-primary btn-sm" id="shareCopyBtn">复制文本</button>
+                            </div>
+                            <pre class="line-numbers share-text-pre"><code id="shareTextContent" class="language-plaintext"><?php echo htmlspecialchars($item['content'] ?? ''); ?></code></pre>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php
+                        // 图片内联预览（A2 灯箱）
+                        $imageExts = array('jpg','jpeg','png','gif','webp','bmp','svg','ico');
+                        $fileExt = strtolower(pathinfo($item['name'] ?? '', PATHINFO_EXTENSION));
+                        if ($item['type'] === 'file' && in_array($fileExt, $imageExts)):
+                    ?>
+                        <div class="share-image-preview">
+                            <img src="?preview=<?php echo htmlspecialchars($item['share_code']); ?>"
+                                 alt="<?php echo htmlspecialchars($item['name']); ?>"
+                                 data-gallery>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php
+                        // 压缩包在线预览（B3）
+                        $archiveExts = array('zip','tar','gz','tgz');
+                        if ($item['type'] === 'file' && in_array($fileExt, $archiveExts)):
+                    ?>
+                        <div id="archivePreviewContainer" class="archive-preview-container" style="display:none"></div>
+                    <?php endif; ?>
+
+                    <?php if ($item['type'] === 'file'): ?>
+                        <div class="share-actions">
+                            <a href="?download=<?php echo $item['id']; ?>" class="btn btn-primary">下载文件</a>
+                            <?php
+                                $previewableExts = array_merge(
+                                    array('jpg','jpeg','png','gif','webp','bmp','svg','ico'),
+                                    array('mp4','webm','ogv','ogg'),
+                                    array('mp3','wav','aac','flac','m4a','opus'),
+                                    array('pdf','md','markdown')
+                                );
+                                if (in_array($fileExt, $previewableExts)):
+                            ?>
+                                <a href="?preview=<?php echo $item['share_code']; ?>" class="btn btn-secondary" target="_blank">在线预览</a>
+                            <?php elseif (in_array($fileExt, $archiveExts)): ?>
+                                <button type="button" class="btn btn-secondary" id="archivePreviewBtn" data-item-id="<?php echo $item['id']; ?>">在线预览</button>
+                            <?php endif; ?>
+                        </div>
                     <?php endif; ?>
                 </div>
 
-                <div class="share-link-box">
-                    <input type="text" id="shareLinkInput" value="<?php echo htmlspecialchars($shareUrl); ?>" readonly>
-                    <button type="button" class="btn btn-secondary" id="shareLinkCopyBtn">复制</button>
-                </div>
+                <aside class="share-sidebar">
+                    <div class="share-sidebar-section">
+                        <div class="share-sidebar-label">分享链接</div>
+                        <div class="share-link-box">
+                            <input type="text" id="shareLinkInput" value="<?php echo htmlspecialchars($shareUrl); ?>" readonly>
+                            <button type="button" class="btn btn-secondary btn-sm" id="shareLinkCopyBtn">复制</button>
+                        </div>
+                    </div>
 
-                <div class="share-qr" id="shareQrContainer">
-                </div>
+                    <div class="share-sidebar-section share-qr-section">
+                        <div class="share-sidebar-label">扫码分享</div>
+                        <div class="share-qr" id="shareQrContainer"></div>
+                    </div>
+
+                    <div class="share-sidebar-section share-meta-section">
+                        <div class="share-meta-item share-meta-time">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <span class="share-meta-text">上传于 <?php echo date('Y-m-d H:i', $item['time']); ?></span>
+                        </div>
+                        <div class="share-meta-item share-meta-ip">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            <span class="share-meta-text">来源 IP: <?php echo htmlspecialchars(maskIP($item['ip'] ?? '')); ?></span>
+                        </div>
+                        <div class="share-meta-item share-meta-countdown" id="shareCountdown" data-expire="<?php echo (int)$item['expire']; ?>">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                            <span class="share-meta-text">
+                                <?php if ((int)$item['expire'] === 0): ?>
+                                    永久有效
+                                <?php else: ?>
+                                    剩余 <span class="countdown-value" id="countdownValue">--</span>
+                                <?php endif; ?>
+                            </span>
+                        </div>
+                        <?php if (!empty($item['download_count'])): ?>
+                        <div class="share-meta-item share-meta-count">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            <span class="share-meta-text">已访问 <?php echo (int)$item['download_count']; ?> 次</span>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ($item['type'] === 'file'): ?>
+                        <div class="share-meta-item share-meta-size">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                            <span class="share-meta-text"><?php echo formatSize($item['size']); ?></span>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </aside>
             </div>
         <?php endif; ?>
     </div>
@@ -639,6 +784,37 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                     colorLight: isDark ? '#1E293B' : '#FFFFFF',
                     correctLevel: QRCode.CorrectLevel.M
                 });
+            }
+        })();
+
+        // 剩余时间倒计时（每秒更新；过期后切换样式）
+        (function() {
+            var el = document.getElementById('shareCountdown');
+            var valueEl = document.getElementById('countdownValue');
+            if (!el || !valueEl) return;
+            var expire = parseInt(el.getAttribute('data-expire') || '0', 10);
+            if (!expire) return; // 0 = 永久
+            function pad(n) { return n < 10 ? '0' + n : '' + n; }
+            function tick() {
+                var left = expire - Math.floor(Date.now() / 1000);
+                if (left <= 0) {
+                    valueEl.textContent = '已过期';
+                    el.setAttribute('data-expired', '1');
+                    return false;
+                }
+                var d = Math.floor(left / 86400);
+                var h = Math.floor((left % 86400) / 3600);
+                var m = Math.floor((left % 3600) / 60);
+                var s = left % 60;
+                if (d > 0) {
+                    valueEl.textContent = d + '天 ' + pad(h) + ':' + pad(m) + ':' + pad(s);
+                } else {
+                    valueEl.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
+                }
+                return true;
+            }
+            if (tick()) {
+                setInterval(function() { if (!tick()) clearInterval(this); }, 1000);
             }
         })();
 
