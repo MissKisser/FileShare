@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/assets/css/layout.css?v=<?php echo APP_VERSION; ?>">
     <link rel="stylesheet" href="/assets/css/components.css?v=<?php echo APP_VERSION; ?>">
     <link rel="stylesheet" href="/assets/css/admin.css?v=<?php echo APP_VERSION; ?>">
+    <meta name="csrf-token" content="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
 </head>
 <body>
     <div class="admin-layout">
@@ -124,11 +125,16 @@
                     </select>
                     <button type="submit" class="btn btn-primary">搜索</button>
                 </form>
+                <div class="batch-toolbar" style="margin: 16px 0; display: flex; gap: 12px; align-items: center;">
+                    <button type="button" id="batchDeleteBtn" class="btn btn-danger" disabled>批量删除 (0)</button>
+                    <span style="font-size: 13px; color: var(--text-secondary);">提示：勾选行后点击按钮，或按 F7 触发批量删除（不可恢复）</span>
+                </div>
                 <table class="log-table">
-                    <thead><tr><th>ID</th><th>类型</th><th>名称</th><th>大小</th><th>上传时间</th><th>过期</th><th>下载次数</th><th>操作</th></tr></thead>
+                    <thead><tr><th style="width:32px"><input type="checkbox" id="batchCheckAll"></th><th>ID</th><th>类型</th><th>名称</th><th>大小</th><th>上传时间</th><th>过期</th><th>下载次数</th><th>操作</th></tr></thead>
                     <tbody>
                     <?php foreach ($adminData['items'] as $item): ?>
                         <tr>
+                            <td><input type="checkbox" class="batch-check" value="<?php echo (int)$item['id']; ?>"></td>
                             <td><?php echo $item['id']; ?></td>
                             <td><?php echo $item['type']; ?></td>
                             <td><?php echo htmlspecialchars($item['name'] ?? mb_substr($item['content'] ?? '', 0, 30)); ?></td>
@@ -138,7 +144,7 @@
                             <td><?php echo $item['download_count']; ?></td>
                             <td>
                                 <a href="?s=<?php echo $item['share_code']; ?>" class="btn-small btn-secondary">查看</a>
-                                <form method="POST" style="display:inline">
+                                <form method="POST" action="/admin/items" style="display:inline">
                                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                     <input type="hidden" name="delete" value="<?php echo $item['id']; ?>">
                                     <button type="submit" class="btn-small btn-danger" onclick="return confirm('确认删除？')">删除</button>
@@ -385,6 +391,91 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
         }
+    })();
+    </script>
+
+    <!-- 批量删除（F7）— 仅在 items 页面渲染时挂载 -->
+    <script>
+    (function() {
+        var btn = document.getElementById('batchDeleteBtn');
+        if (!btn) return; // 非 items 页面直接退出
+
+        var allBtn = document.getElementById('batchCheckAll');
+        var checks = function() { return document.querySelectorAll('.batch-check'); };
+
+        function refreshCount() {
+            var n = document.querySelectorAll('.batch-check:checked').length;
+            btn.textContent = '批量删除 (' + n + ')';
+            btn.disabled = (n === 0);
+        }
+
+        // 每行 checkbox 变化 → 刷新计数
+        document.addEventListener('change', function(e) {
+            if (e.target && e.target.classList && e.target.classList.contains('batch-check')) {
+                refreshCount();
+            }
+        });
+
+        // 表头全选
+        if (allBtn) {
+            allBtn.addEventListener('change', function() {
+                checks().forEach(function(c) { c.checked = allBtn.checked; });
+                refreshCount();
+            });
+        }
+
+        // 取 CSRF token（meta 标签）
+        function csrfToken() {
+            var m = document.querySelector('meta[name="csrf-token"]');
+            return m ? m.getAttribute('content') : '';
+        }
+
+        // 批量删除点击
+        btn.addEventListener('click', function() {
+            var ids = [];
+            checks().forEach(function(c) { if (c.checked) ids.push(c.value); });
+            if (!ids.length) return;
+            if (!confirm('确认删除选中的 ' + ids.length + ' 个项目？\n此操作不可恢复。')) return;
+
+            var fd = new FormData();
+            fd.append('csrf_token', csrfToken());
+            fd.append('action', 'batch_delete');
+            ids.forEach(function(id) { fd.append('ids[]', id); });
+
+            btn.disabled = true;
+            var originalText = btn.textContent;
+            btn.textContent = '删除中...';
+
+            fetch('/', { method: 'POST', body: fd, credentials: 'same-origin' })
+                .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+                .then(function(out) {
+                    if (out.ok && out.data && out.data.success) {
+                        alert(out.data.message || '删除完成');
+                        location.reload();
+                    } else {
+                        alert((out.data && out.data.message) || '删除失败');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        refreshCount();
+                    }
+                })
+                .catch(function(err) {
+                    alert('请求失败：' + (err && err.message ? err.message : err));
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                    refreshCount();
+                });
+        });
+
+        // F7 快捷键
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F7') {
+                e.preventDefault();
+                if (!btn.disabled) btn.click();
+            }
+        });
+
+        refreshCount();
     })();
     </script>
 </body>
