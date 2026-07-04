@@ -8,7 +8,7 @@ if (!defined('ACCESS_ALLOWED')) {
 }
 
 // 应用版本号（更新时修改此值，用于静态资源缓存破坏）
-define('APP_VERSION', '1.0.1');
+define('APP_VERSION', '1.0.2');
 
 // 目录配置
 define('ROOT_DIR', dirname(__DIR__));
