@@ -247,7 +247,8 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             color: var(--text-primary);
             font-weight: 600;
         }
-        .share-text-pre {
+        .share-text-pre,
+        pre[class*="language-"].share-text-pre {
             margin: 0;
             padding: 18px 20px;
             background: var(--card-bg);
@@ -256,7 +257,8 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             font-size: 13px;
             line-height: 1.6;
         }
-        .share-text-pre code {
+        .share-text-pre code,
+        pre[class*="language-"].share-text-pre code {
             font-family: JetBrains Mono, monospace;
             color: var(--text-primary);
             white-space: pre-wrap;
