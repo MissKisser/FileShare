@@ -137,7 +137,7 @@
                     <input type="text" id="shareLinkInput" readonly style="width:100%;padding:10px 14px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-family:JetBrains Mono,monospace;font-size:13px;box-sizing:border-box">
                     <button type="button" id="shareLinkCopy" class="btn btn-primary" style="margin-top:8px;width:100%">复制链接</button>
                 </div>
-                <div id="shareQrContainer" style="margin-top:16px">
+                <div id="shareQrContainer" style="margin-top:16px;display:flex;justify-content:center;align-items:center">
                 </div>
             </div>
         </div>
