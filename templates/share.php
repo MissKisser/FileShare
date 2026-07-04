@@ -457,6 +457,65 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
     <script src="/assets/js/qrcode.min.js?v=<?php echo APP_VERSION; ?>"></script>
     <script>
+        // 手动复制兜底弹窗（移动端 / 旧浏览器最后手段）
+        function showManualCopyFallback(text) {
+            var existing = document.getElementById('manualCopyFallback');
+            if (existing) existing.remove();
+            var overlay = document.createElement('div');
+            overlay.id = 'manualCopyFallback';
+            overlay.className = 'manual-copy-overlay';
+            overlay.innerHTML = '<div class="manual-copy-modal">' +
+                '<div class="manual-copy-header">' +
+                '<div class="manual-copy-title">请手动复制</div>' +
+                '<button type="button" class="manual-copy-close" aria-label="关闭">&times;</button>' +
+                '</div>' +
+                '<div class="manual-copy-body">' +
+                '<p class="manual-copy-hint">长按下方文本框，然后选择"复制"</p>' +
+                '<textarea class="manual-copy-textarea" readonly></textarea>' +
+                '</div>' +
+                '<div class="manual-copy-footer">' +
+                '<button type="button" class="manual-copy-select-all">全选并复制</button>' +
+                '</div>' +
+                '</div>';
+            document.body.appendChild(overlay);
+            var textarea = overlay.querySelector('.manual-copy-textarea');
+            textarea.value = text;
+            setTimeout(function() {
+                textarea.focus();
+                textarea.select();
+                textarea.setSelectionRange(0, text.length);
+            }, 100);
+            var closeBtn = overlay.querySelector('.manual-copy-close');
+            var close = function() {
+                overlay.classList.remove('show');
+                setTimeout(function() { overlay.remove(); }, 200);
+            };
+            closeBtn.addEventListener('click', close);
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) close();
+            });
+            var selectAllBtn = overlay.querySelector('.manual-copy-select-all');
+            selectAllBtn.addEventListener('click', function() {
+                textarea.focus();
+                textarea.select();
+                textarea.setSelectionRange(0, text.length);
+                try {
+                    if (document.execCommand('copy')) {
+                        selectAllBtn.textContent = '✓ 已复制';
+                        setTimeout(close, 1000);
+                    }
+                } catch (e) {}
+            });
+            var escHandler = function(e) {
+                if (e.key === 'Escape') {
+                    close();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+            requestAnimationFrame(function() { overlay.classList.add('show'); });
+        }
+
         // 主题切换
         (function() {
             const themeToggle = document.getElementById('themeToggle');
@@ -472,10 +531,80 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             });
         })();
 
-        // 文本语法高亮
+        // 复制链接（必须在 Prism 高亮前绑定，否则 Prism 抛错会中断后续脚本）
+        (function() {
+            var copyBtn = document.getElementById('shareLinkCopyBtn');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', function() {
+                    var input = document.getElementById('shareLinkInput');
+                    if (!input) return;
+                    input.select();
+                    var fallback = function() {
+                        try {
+                            input.focus();
+                            input.select();
+                            input.setSelectionRange(0, input.value.length);
+                            document.execCommand('copy');
+                            copyBtn.textContent = '已复制';
+                            setTimeout(function() { copyBtn.textContent = '复制'; }, 2000);
+                        } catch (e) {
+                            // 最后兜底：弹窗让用户手动复制
+                            showManualCopyFallback(input.value);
+                        }
+                    };
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(input.value).then(function() {
+                            copyBtn.textContent = '已复制';
+                            setTimeout(function() { copyBtn.textContent = '复制'; }, 2000);
+                        }).catch(fallback);
+                    } else {
+                        fallback();
+                    }
+                });
+            }
+        })();
+
+        // 复制文本（必须在 Prism 高亮前绑定）
+        (function() {
+            var copyBtn = document.getElementById('shareCopyBtn');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', function() {
+                    var codeEl = document.getElementById('shareTextContent');
+                    if (!codeEl) return;
+                    var text = codeEl.textContent || '';
+                    var fallback = function() {
+                        try {
+                            var range = document.createRange();
+                            range.selectNodeContents(codeEl);
+                            var sel = window.getSelection();
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                            document.execCommand('copy');
+                            copyBtn.textContent = '已复制';
+                            setTimeout(function() { copyBtn.textContent = '复制文本'; }, 2000);
+                        } catch (e) {
+                            // 移动端 HTTP / iOS 旧浏览器：弹窗手动复制
+                            showManualCopyFallback(text);
+                        }
+                    };
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(text).then(function() {
+                            copyBtn.textContent = '已复制';
+                            setTimeout(function() { copyBtn.textContent = '复制文本'; }, 2000);
+                        }).catch(fallback);
+                    } else {
+                        fallback();
+                    }
+                });
+            }
+        })();
+
+        // 文本语法高亮（必须包 try/catch；某些语言组合下 Prism 内部会抛错，
+        // 抛错也不影响上方的复制按钮）
         (function() {
             var codeEl = document.getElementById('shareTextContent');
-            if (codeEl) {
+            if (!codeEl) return;
+            try {
                 var text = codeEl.textContent || '';
                 var lang = 'plaintext';
                 if (/\b(function|var|let|const|=>|async|await)\b/.test(text)) lang = 'javascript';
@@ -487,7 +616,12 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                 else if (/\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/i.test(text)) lang = 'sql';
                 else if (/\b(#!\/bin\/|npm |yarn |pip |apt |sudo )\b/.test(text)) lang = 'bash';
                 codeEl.className = 'language-' + lang;
-                Prism.highlightElement(codeEl);
+                if (typeof Prism !== 'undefined' && Prism.languages && Prism.languages[lang]) {
+                    Prism.highlightElement(codeEl);
+                }
+            } catch (e) {
+                // 高亮失败不影响功能（不影响上方的复制按钮）
+                console.warn('Prism highlight failed:', e);
             }
         })();
 
@@ -504,50 +638,6 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                     colorDark: isDark ? '#F1F5F9' : '#111827',
                     colorLight: isDark ? '#1E293B' : '#FFFFFF',
                     correctLevel: QRCode.CorrectLevel.M
-                });
-            }
-        })();
-
-        // 复制链接
-        (function() {
-            var copyBtn = document.getElementById('shareLinkCopyBtn');
-            if (copyBtn) {
-                copyBtn.addEventListener('click', function() {
-                    var input = document.getElementById('shareLinkInput');
-                    input.select();
-                    navigator.clipboard.writeText(input.value).then(function() {
-                        copyBtn.textContent = '已复制';
-                        setTimeout(function() { copyBtn.textContent = '复制'; }, 2000);
-                    }).catch(function() {
-                        document.execCommand('copy');
-                        copyBtn.textContent = '已复制';
-                        setTimeout(function() { copyBtn.textContent = '复制'; }, 2000);
-                    });
-                });
-            }
-        })();
-
-        // 复制文本
-        (function() {
-            var copyBtn = document.getElementById('shareCopyBtn');
-            if (copyBtn) {
-                copyBtn.addEventListener('click', function() {
-                    var codeEl = document.getElementById('shareTextContent');
-                    if (codeEl) {
-                        navigator.clipboard.writeText(codeEl.textContent).then(function() {
-                            copyBtn.textContent = '已复制';
-                            setTimeout(function() { copyBtn.textContent = '复制文本'; }, 2000);
-                        }).catch(function() {
-                            var range = document.createRange();
-                            range.selectNodeContents(codeEl);
-                            var sel = window.getSelection();
-                            sel.removeAllRanges();
-                            sel.addRange(range);
-                            document.execCommand('copy');
-                            copyBtn.textContent = '已复制';
-                            setTimeout(function() { copyBtn.textContent = '复制文本'; }, 2000);
-                        });
-                    }
                 });
             }
         })();

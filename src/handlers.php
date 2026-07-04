@@ -123,6 +123,12 @@ function handleRequest() {
         return;
     }
 
+    // ===== 鉴权缩略图路由（密码保护文件不直接暴露 /uploads/*.thumb.jpg） =====
+    if (isset($_GET['thumb'])) {
+        handleThumbnailServe();
+        return;
+    }
+
     // ===== 压缩包预览路由（B3） =====
     if (isset($_GET['archive'])) {
         require_once __DIR__ . '/archive.php';
@@ -1131,8 +1137,12 @@ function handleSearch() {
     $items = searchItems($query, $typeFilter, $categoryFilter, $sort, $sortOrder);
 
     // 格式化输出
+    // 搜索接口面向已登录用户（管理后台/前端），返回完整 content（用于复制按钮）；
+    // 密码保护的文本仍只返回 preview，由前端跳转到分享页解锁后复制。
     $result = [];
     foreach ($items as $item) {
+        $isText = ($item['type'] === 'text');
+        $hasPw  = !empty($item['password']);
         $result[] = [
             'id' => $item['id'],
             'share_code' => $item['share_code'],
@@ -1145,12 +1155,65 @@ function handleSearch() {
             'expire' => $item['expire'],
             'expire_formatted' => formatExpire($item['expire']),
             'download_count' => $item['download_count'],
-            'has_password' => !empty($item['password']),
-            'content_preview' => $item['type'] === 'text' ? mb_substr($item['content'] ?? '', 0, 150) : null,
+            'has_password' => $hasPw,
+            'content_preview' => $isText ? mb_substr($item['content'] ?? '', 0, 150) : null,
+            // 完整文本（仅文本类型、未设密码时返回；用于前端"复制"按钮）
+            'content' => ($isText && !$hasPw) ? ($item['content'] ?? '') : null,
         ];
     }
 
     echo json_encode(['success' => true, 'items' => $result], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+/**
+ * 鉴权缩略图输出
+ * 路由：?thumb=N
+ *
+ * 缩略图本身位于 uploads/<file>.thumb.jpg，过去被前端直接以 /uploads/<thumbPath>
+ * 引用，造成密码保护项的缩略图可被未授权访问。这里把所有读取收敛到本路由，
+ * 统一执行密码解锁检查（仅当对应 share_code 已解锁时才输出）。
+ */
+function handleThumbnailServe() {
+    $id = intval($_GET['thumb']);
+    if ($id <= 0) {
+        http_response_code(400);
+        echo 'Invalid thumb id';
+        exit;
+    }
+
+    $db = getDB();
+    $stmt = $db->prepare('SELECT id, type, share_code, password, thumbnail_path FROM items WHERE id = ?');
+    $stmt->execute([$id]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$item || $item['type'] !== 'file' || empty($item['thumbnail_path'])) {
+        http_response_code(404);
+        echo 'Not found';
+        exit;
+    }
+
+    // 密码保护检查
+    if (!empty($item['password'])) {
+        $unlockedKey = 'unlocked_' . $item['share_code'];
+        if (empty($_SESSION[$unlockedKey])) {
+            http_response_code(403);
+            echo '需要先通过分享页输入密码';
+            exit;
+        }
+    }
+
+    $thumbPath = UPLOAD_DIR . basename($item['thumbnail_path']);
+    if (!is_file($thumbPath)) {
+        http_response_code(404);
+        echo 'Thumb file missing';
+        exit;
+    }
+
+    header('Content-Type: image/jpeg');
+    header('Content-Length: ' . filesize($thumbPath));
+    header('Cache-Control: private, max-age=300');
+    readfile($thumbPath);
     exit;
 }
 
@@ -1164,8 +1227,11 @@ function handleSearch() {
 function getBaseUrl() {
     $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $path = dirname($_SERVER['SCRIPT_NAME']);
-    $base = $protocol . '://' . $host . ($path === '/' ? '' : $path);
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    $path = $scriptName !== '' ? dirname($scriptName) : '';
+    // Windows 平台 PHP CLI / 部分配置下 dirname 返回 '\'，需要规范化
+    $path = str_replace('\\', '/', $path);
+    $base = $protocol . '://' . $host . ($path === '/' || $path === '\\' ? '' : $path);
     // 确保末尾有斜杠，避免拼接 assets/css/... 时缺少分隔符
     if (substr($base, -1) !== '/') {
         $base .= '/';

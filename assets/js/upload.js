@@ -1958,8 +1958,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     (preview ? '<div class="text-preview"><pre>' + preview + '...</pre></div>' : '') +
                     '</div>' +
                     '<div class="item-actions">' +
-                    '<button class="btn-small btn-secondary btn-view" data-id="' + item.id + '" data-content="' + escapeAttr(item.content_preview || '') + '">展开</button>' +
-                    '<button class="btn-small btn-secondary btn-copy" data-content="' + escapeAttr(item.content_preview || '') + '">复制</button>' +
+                    '<button class="btn-small btn-secondary btn-view" data-id="' + item.id + '" data-content="' + escapeAttr(item.content || item.content_preview || '') + '">展开</button>' +
+                    '<button class="btn-small btn-secondary btn-copy" data-content="' + escapeAttr(item.content || item.content_preview || '') + '">复制</button>' +
                     '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
                     '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
                     '</div></div>';
