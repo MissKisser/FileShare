@@ -86,6 +86,9 @@ define('LARGE_FILE_PASSWORD', $largeFilePassword);
 // 管理员密码（F9）
 define('ADMIN_PASSWORD', loadEnvVar('ADMIN_PASSWORD', ''));
 
+// 管理员会话 key（admin.php 和 handlers.php 都依赖，放到 config.php 统一引用）
+define('ADMIN_SESSION_NAME', 'fileshare_admin');
+
 // API 开关（F3）
 define('API_ENABLED', loadEnvVar('API_ENABLED', '1') === '1');
 

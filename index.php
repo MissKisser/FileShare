@@ -18,6 +18,7 @@ define('ACCESS_ALLOWED', true);
 require_once __DIR__ . '/src/config.php';
 require_once __DIR__ . '/src/database.php';
 require_once __DIR__ . '/src/functions.php';
+require_once __DIR__ . '/src/admin.php';      // 提供 isAdminLoggedIn() — handlers.php 的删除路由依赖它
 require_once __DIR__ . '/src/handlers.php';
 
 // 检查是否需要从 JSON 迁移

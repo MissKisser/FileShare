@@ -108,81 +108,120 @@ function getItemById($id) {
 }
 
 /**
- * 根据 ID 删除项目
- * 
+ * 根据 ID 删除项目（单条快捷入口）
+ *
  * @param int $id
- * @return bool
+ * @return bool 是否成功删除
  */
 function deleteItemById($id) {
-    $db = getDB();
-    $item = getItemById($id);
-    if (!$item) {
-        return false;
-    }
-
-    // 删除物理文件
-    if ($item['type'] === 'file' && !empty($item['path']) && file_exists($item['path'])) {
-        if (!empty($item['file_hash'])) {
-            // 检查引用计数
-            $refStmt = $db->prepare('SELECT COUNT(*) as cnt FROM items WHERE path = ? AND id != ?');
-            $refStmt->execute([$item['path'], $id]);
-            $refCount = $refStmt->fetch()['cnt'];
-            if ($refCount == 0) {
-                @unlink($item['path']);
-            }
-        } else {
-            @unlink($item['path']);
-        }
-    }
-
-    $stmt = $db->prepare('DELETE FROM items WHERE id = ?');
-    return $stmt->execute([$id]);
+    $result = deleteItemsAtomically([(int)$id]);
+    return $result['deleted_count'] === 1;
 }
 
 /**
- * 批量删除项目
- * 
- * @param array $ids ID 数组
- * @return array ['deleted' => int, 'errors' => array]
+ * 原子删除一个或多个 item — P1 重构核心
+ *
+ * 修复的问题：
+ *  - P1.1 事务边界错误（旧实现 beginTransaction 在 DELETE 之外，unlink 失败不回滚）
+ *  - P1.2 关联日志残留（旧实现只 DELETE items，download_logs / upload_logs 留孤儿行）
+ *  - P1.3 物理文件引用计数 race（旧实现"先查再删"两步走、无锁）
+ *  - P1.5 ID enumeration（旧实现 errors 数组泄露哪些 ID 不存在）
+ *
+ * 行为契约：
+ *  - 全部成功 → 返回 ['deleted' => [id => share_code], 'errors' => [], 'deleted_count' => N]
+ *  - 任意 unlink 失败 → 整体 rollback，返回 errors（[id => reason]）
+ *  - 输入 ID 中有不存在的 → 静默忽略（不计入 errors，也不暴露哪些 ID 存在）
+ *
+ * @param int[] $ids 待删除的 item id 列表
+ * @return array{deleted: array<int,string>, errors: array<int,string>, deleted_count: int}
  */
-function batchDeleteItems($ids) {
+function deleteItemsAtomically(array $ids) {
     $db = getDB();
-    $deleted = 0;
-    $errors = [];
+
+    // 规范化输入：去重、强制 int、过滤无效（PHP 7.3 兼容写法，不用 fn() 箭头函数）
+    $ids = array_map('intval', $ids);
+    $ids = array_filter($ids, function($i) { return $i > 0; });
+    $ids = array_values(array_unique($ids));
+    if (empty($ids)) {
+        return ['deleted' => [], 'errors' => [], 'deleted_count' => 0];
+    }
+
+    $deleted = [];   // id => share_code（成功删除的）
+    $errors = [];    // id => reason（失败的 — 通常是 unlink 失败）
 
     $db->beginTransaction();
-    foreach ($ids as $id) {
-        $id = intval($id);
-        $item = getItemById($id);
-        if (!$item) {
-            $errors[] = "ID {$id} 不存在";
-            continue;
+    try {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $db->prepare("SELECT id, share_code, type, path, file_hash FROM items WHERE id IN ($placeholders)");
+        $stmt->execute($ids);
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // 全部 ID 都不存在 → 静默返回（不计入 errors，避免 enumeration）
+        if (empty($items)) {
+            $db->commit();
+            return ['deleted' => [], 'errors' => [], 'deleted_count' => 0];
         }
 
-        // 删除物理文件
-        if ($item['type'] === 'file' && !empty($item['path']) && file_exists($item['path'])) {
+        $foundIds = array_column($items, 'id');
+        $ph2 = implode(',', array_fill(0, count($foundIds), '?'));
+
+        // 1. 先清关联日志（避免 FK 约束冲突 + 清理孤儿行）
+        // 注：upload_logs.item_id nullable（兼容历史无 FK 的迁移行），download_logs.item_id NOT NULL
+        $db->prepare("DELETE FROM download_logs WHERE item_id IN ($ph2)")->execute($foundIds);
+        $db->prepare("DELETE FROM upload_logs WHERE item_id IN ($ph2)")->execute($foundIds);
+
+        // 2. 物理文件：按引用计数删（事务内，失败回滚）
+        foreach ($items as $item) {
+            if ($item['type'] !== 'file') continue;
+            if (empty($item['path']) || !file_exists($item['path'])) continue;
+
+            // 有 file_hash 时才做引用计数（同一文件多 share 场景）
             if (!empty($item['file_hash'])) {
-                $refStmt = $db->prepare('SELECT COUNT(*) as cnt FROM items WHERE path = ? AND id != ?');
-                $refStmt->execute([$item['path'], $id]);
-                $refCount = $refStmt->fetch()['cnt'];
-                if ($refCount == 0) {
-                    @unlink($item['path']);
+                $refStmt = $db->prepare('SELECT COUNT(*) FROM items WHERE path = ? AND id != ?');
+                $refStmt->execute([$item['path'], $item['id']]);
+                if ((int)$refStmt->fetchColumn() > 0) {
+                    continue; // 还有别的 share 引用同一个文件，跳过 unlink
                 }
-            } else {
-                @unlink($item['path']);
+            }
+
+            if (!@unlink($item['path'])) {
+                // 抛异常 → 外层 catch → rollback，DB 状态完全恢复
+                throw new RuntimeException("unlink failed: {$item['path']}");
             }
         }
 
-        $stmt = $db->prepare('DELETE FROM items WHERE id = ?');
-        if ($stmt->execute([$id])) {
-            $deleted++;
-        } else {
-            $errors[] = "ID {$id} 删除失败";
-        }
-    }
-    $db->commit();
+        // 3. 真正删 items
+        $delStmt = $db->prepare("DELETE FROM items WHERE id IN ($ph2)");
+        $delStmt->execute($foundIds);
 
-    return ['deleted' => $deleted, 'errors' => $errors];
+        foreach ($items as $item) {
+            $deleted[(int)$item['id']] = $item['share_code'];
+        }
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        // 整批回滚 → 失败的 ID 列表就是用户传入的全部 ID
+        // 但更准确的做法：把失败的 item 标出来（unlink 失败的），其余的算被回滚
+        foreach ($ids as $id) {
+            $errors[$id] = $e->getMessage();
+        }
+        error_log('deleteItemsAtomically failed: ' . $e->getMessage());
+    }
+
+    return ['deleted' => $deleted, 'errors' => $errors, 'deleted_count' => count($deleted)];
+}
+
+/**
+ * 批量删除项目（兼容旧调用方 — 现在转发到 deleteItemsAtomically）
+ *
+ * @param int[] $ids ID 数组
+ * @return array{deleted: array<int,string>, errors: array<int,string>, deleted_count: int}
+ */
+function batchDeleteItems($ids) {
+    return deleteItemsAtomically($ids);
 }
 
 /**
@@ -589,4 +628,45 @@ function isIPBlacklisted($ip) {
         }
     }
     return false;
+}
+
+/**
+ * 记录管理员操作（审计日志）
+ *
+ * 复用 upload_logs 表，action 字段填 'admin_<verb>' 区分（如 'admin_delete'）。
+ * 读端在 templates/admin/layout.php 的 logs 页面筛 action LIKE 'admin_%' 即可。
+ *
+ * 注意：item_id 列对 items(id) 有 FK 约束。对"删除"操作来说，调用时 item 已被删，
+ * 直接写 item_id 会触发 FK 约束失败。所以这里把 item_id 设为 NULL，把可追溯
+ * 的 share_code / itemType 拼到 filename 列里（形如 'admin_delete:abc123 [file]'）。
+ *
+ * @param string $verb        动作名，如 'delete' / 'batch_delete'
+ * @param int|null $itemId    受影响 item 的 id（已删除场景传 NULL 避免 FK 冲突）
+ * @param string|null $shareCode 受影响 item 的 share_code（写入 filename 列方便人读）
+ * @param string|null $itemType  受影响 item 的 type（写入 filename 列方便人读）
+ * @return void
+ */
+function logAdminAction($verb, $itemId = null, $shareCode = null, $itemType = null) {
+    try {
+        $db = getDB();
+        $parts = ['admin_' . $verb];
+        if ($shareCode) $parts[] = $shareCode;
+        if ($itemType) $parts[] = '[' . $itemType . ']';
+        $filename = implode(':', $parts);
+        // item_id 永远为 NULL（避开 FK 约束）；share_code / type 信息在 filename 里
+        $db->prepare(
+            'INSERT INTO upload_logs (ip, filename, filesize, upload_time, action, item_id, session_id)
+             VALUES (?, ?, ?, ?, ?, NULL, ?)'
+        )->execute([
+            getRealIP(),
+            $filename,
+            0,
+            time(),
+            'admin_' . $verb,
+            session_id(),
+        ]);
+    } catch (Throwable $e) {
+        // 审计日志写不进不应阻断主流程，但要让运维能看到
+        error_log('logAdminAction failed: ' . $e->getMessage());
+    }
 }

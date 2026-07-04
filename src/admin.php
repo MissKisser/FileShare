@@ -10,12 +10,11 @@ if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 // ============================================================
 // 管理员认证
 // ============================================================
-
-define('ADMIN_SESSION_NAME', 'fileshare_admin');
+// ADMIN_SESSION_NAME 常量已在 src/config.php 定义
 
 /**
  * 检查管理员是否已登录
- * 
+ *
  * @return bool
  */
 function isAdminLoggedIn() {

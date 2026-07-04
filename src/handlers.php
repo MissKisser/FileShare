@@ -159,7 +159,7 @@ function handleRequest() {
     }
     if ($adminPage !== null) {
         $_GET['admin'] = $adminPage;
-        require_once __DIR__ . '/admin.php';
+        // admin.php 已在 index.php 顶层无条件 require_once，无需重复加载
         handleAdminRequest();
         return;
     }
@@ -580,23 +580,35 @@ function handleDelete() {
         exit('Method Not Allowed');
     }
 
+    // P0: 必须已登录 admin，否则返回 403（不再重定向到 PHP_SELF，避免 header 注入 + 区分未授权）
+    if (!isAdminLoggedIn()) {
+        http_response_code(403);
+        exit('Admin login required');
+    }
+
     // CSRF Token验证
     $token = $_POST['csrf_token'] ?? '';
     if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
         $_SESSION['message'] = '安全验证失败！';
-        header('Location: ' . $_SERVER['PHP_SELF']);
+        header('Location: /admin/items');
         exit;
     }
 
     $id = intval($_POST['delete'] ?? -1);
     if ($id > 0) {
-        if (deleteItemById($id)) {
+        $item = getItemById($id);
+        if (!$item) {
+            $_SESSION['message'] = '项目不存在或已删除';
+        } elseif (deleteItemById($id)) {
+            // 审计日志：谁删了什么（admin_delete:<share_code>）
+            logAdminAction('delete', $id, $item['share_code'] ?? null, $item['type'] ?? null);
             $_SESSION['message'] = '删除成功！';
         } else {
-            $_SESSION['message'] = '项目不存在或已删除';
+            $_SESSION['message'] = '删除失败';
         }
     }
-    header('Location: ' . $_SERVER['PHP_SELF']);
+    // 修：原代码用 $_SERVER['PHP_SELF'] 有 header 注入风险，改为固定路径
+    header('Location: /admin/items');
     exit;
 }
 
@@ -605,6 +617,13 @@ function handleDelete() {
 // ============================================================
 function handleBatchDelete() {
     header('Content-Type: application/json; charset=utf-8');
+
+    // P0: 必须已登录 admin
+    if (!isAdminLoggedIn()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Admin login required'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     // CSRF验证
     if (!validateCSRF()) {
@@ -617,6 +636,10 @@ function handleBatchDelete() {
     if (!is_array($ids)) {
         $ids = [$ids];
     }
+    // 规范化：去重 + 强制 int + 过滤无效（避免 enumeration 与 SQL 注入面；PHP 7.3 兼容写法）
+    $ids = array_map('intval', $ids);
+    $ids = array_filter($ids, function($i) { return $i > 0; });
+    $ids = array_values(array_unique($ids));
 
     if (empty($ids)) {
         echo json_encode(['success' => false, 'message' => '未选择任何项目'], JSON_UNESCAPED_UNICODE);
@@ -624,11 +647,20 @@ function handleBatchDelete() {
     }
 
     $result = batchDeleteItems($ids);
+
+    // 审计日志：每个成功删除的 item 单独记一条（便于回溯）
+    foreach ($result['deleted'] as $deletedId => $deletedCode) {
+        logAdminAction('batch_delete', (int)$deletedId, $deletedCode, null);
+    }
+
+    // P1.5 修复：不返回 errors 详情（避免 ID enumeration 攻击）
     echo json_encode([
-        'success' => $result['deleted'] > 0,
-        'message' => "成功删除 {$result['deleted']} 个项目",
-        'deleted' => $result['deleted'],
-        'errors' => $result['errors'],
+        'success' => $result['deleted_count'] > 0,
+        'message' => $result['deleted_count'] > 0
+            ? "成功删除 {$result['deleted_count']} 个项目"
+            : '没有可删除的项目（可能已被其他管理员删除）',
+        'deleted_count' => $result['deleted_count'],
+        'deleted_ids' => array_keys($result['deleted']),
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
