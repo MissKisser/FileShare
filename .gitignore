@@ -34,6 +34,9 @@ uploads.bak/
 .claude/
 .omc/
 
+# 本地 Claude 上下文（含部署服务器等敏感信息，不入库）
+CLAUDE.local.md
+
 # 运行时配置（敏感，不入库）
 .env
 .user.ini
