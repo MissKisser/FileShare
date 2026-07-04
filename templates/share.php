@@ -279,7 +279,6 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                 font-size: 12px;
             }
         }
-    </style>
         .share-download-count {
             display: inline-flex;
             align-items: center;
