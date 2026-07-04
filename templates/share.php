@@ -250,8 +250,11 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
         .share-text-pre,
         pre[class*="language-"].share-text-pre {
             margin: 0;
-            padding: 18px 20px;
-            background: var(--card-bg);
+            padding: 18px 20px 18px 22px; /* 左侧略多留白给 accent stripe */
+            background: var(--bg-tertiary); /* 与外层 .share-card(--card-bg) 形成对比 */
+            border: 1px solid var(--card-border);
+            border-left: 3px solid var(--accent-blue); /* 代码块通用 accent 边线 */
+            border-radius: var(--radius-md);
             max-height: 480px;
             overflow: auto;
             font-size: 13px;
