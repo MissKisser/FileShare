@@ -10,12 +10,22 @@ if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 /**
  * 加载所有项目数据
  * 兼容旧接口，返回数组格式
- * 
+ *
+ * 注意：首页公开渲染此数据。绝不能返回以下敏感列：
+ *   - content（密码保护文本/私密贴全文）
+ *   - path / file_hash（物理文件路径与哈希）
+ *   - ip / user_agent（创建者隐私）
+ *
  * @return array
  */
 function loadData() {
     $db = getDB();
-    $stmt = $db->query('SELECT * FROM items ORDER BY time DESC');
+    $stmt = $db->query(
+        'SELECT id, share_code, type, name, size, mime_type, thumbnail_path, '
+      . '       password IS NOT NULL AS has_password, download_count, time, '
+      . '       expire, duration '
+      . 'FROM items ORDER BY time DESC'
+    );
     return $stmt->fetchAll();
 }
 

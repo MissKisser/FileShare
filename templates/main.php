@@ -367,8 +367,17 @@
                                         <?php endif; ?>
                                     </div>
                                     <?php if ($item['type'] === 'text'): ?>
+                                        <?php
+                                            // 首页不直接展示文本内容（哪怕是 preview）：
+                                            // - 密码保护的文本预览会泄密
+                                            // - 未设密码的全文也只能从分享页查看
+                                            // 这里只渲染一个静态标签，与 upload_logs.filename 约定一致。
+                                            $textLabel = !empty($item['has_password'])
+                                                ? '文本片段 [密码保护]'
+                                                : '文本片段';
+                                        ?>
                                         <div class="text-preview">
-                                            <pre><?php echo htmlspecialchars(mb_substr($item['content'] ?? '', 0, 150)); ?><?php if (mb_strlen($item['content'] ?? '') > 150) echo '...'; ?></pre>
+                                            <pre class="text-preview-label"><?php echo htmlspecialchars($textLabel); ?></pre>
                                         </div>
                                     <?php endif; ?>
                                 </div>
@@ -389,8 +398,13 @@
                                             <button class="btn-small btn-secondary btn-preview" data-share-code="<?php echo $item['share_code']; ?>">预览</button>
                                         <?php endif; ?>
                                     <?php else: ?>
-                                        <button class="btn-small btn-secondary btn-view" data-id="<?php echo $item['id']; ?>" data-content="<?php echo htmlspecialchars($item['content'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">展开</button>
-                                        <button class="btn-small btn-secondary btn-copy" data-content="<?php echo htmlspecialchars($item['content'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">复制</button>
+                                        <?php
+                                            // 文本项不再把 content 渲染到 data-content 属性（会随首页 HTML 泄密）。
+                                            // 全部走分享页：密码项由分享页密码 gate 保护；非密码项在分享页直接展示。
+                                            $shareUrl = '?s=' . urlencode($item['share_code']);
+                                        ?>
+                                        <a href="<?php echo $shareUrl; ?>" class="btn-small btn-secondary btn-view">展开</a>
+                                        <a href="<?php echo $shareUrl; ?>" class="btn-small btn-secondary btn-copy">复制</a>
                                     <?php endif; ?>
                                     <button class="btn-small btn-secondary btn-share" data-share-code="<?php echo $item['share_code']; ?>">分享</button>
                                     <button class="btn-small btn-danger btn-delete" data-id="<?php echo $item['id']; ?>">移除</button>

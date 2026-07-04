@@ -32,8 +32,10 @@
     }
 
     function renderThumbnail(item, thumbPath) {
-        item.innerHTML = '<img src="/uploads/' + encodeURIComponent(thumbPath) +
-            '" alt="" loading="lazy" class="thumb-image" />';
+        // 改走 ?thumb=ID 鉴权路由，避免缩略图通过 /uploads/ 直接静态访问泄露
+        // thumbPath 仅作为缓存键使用；显示时以 itemId 拉取
+        item.innerHTML = '<img src="?thumb=' + item.dataset.thumbnailItem +
+            '" alt="" loading="lazy" class="thumb-image" data-thumb-path="' + thumbPath + '" />';
     }
 
     function loadThumbnail(item) {

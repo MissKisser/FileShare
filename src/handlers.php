@@ -1177,8 +1177,10 @@ function handleSearch() {
     $items = searchItems($query, $typeFilter, $categoryFilter, $sort, $sortOrder);
 
     // 格式化输出
-    // 搜索接口面向已登录用户（管理后台/前端），返回完整 content（用于复制按钮）；
-    // 密码保护的文本仍只返回 preview，由前端跳转到分享页解锁后复制。
+    // 搜索接口面向公开前端：永远不要把 content 放进响应体。
+    // 密码保护的文本不返回 preview（必须跳转到分享页解锁才能看）；
+    // 未设密码的文本最多给 150 字符 preview，供前端"展开"按钮按需使用。
+    // 完整 content 永不返回——任何复制/查看都应走 ?s=<share_code>。
     $result = [];
     foreach ($items as $item) {
         $isText = ($item['type'] === 'text');
@@ -1196,9 +1198,10 @@ function handleSearch() {
             'expire_formatted' => formatExpire($item['expire']),
             'download_count' => $item['download_count'],
             'has_password' => $hasPw,
-            'content_preview' => $isText ? mb_substr($item['content'] ?? '', 0, 150) : null,
-            // 完整文本（仅文本类型、未设密码时返回；用于前端"复制"按钮）
-            'content' => ($isText && !$hasPw) ? ($item['content'] ?? '') : null,
+            // 受密码保护的文本绝不返回任何预览内容
+            'content_preview' => ($isText && !$hasPw)
+                ? mb_substr($item['content'] ?? '', 0, 150)
+                : null,
         ];
     }
 

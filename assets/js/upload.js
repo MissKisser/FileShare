@@ -1491,21 +1491,26 @@ document.addEventListener('DOMContentLoaded', function() {
         listContainer.dataset.bound = '1';
 
         // 查看按钮（展开）
+        // 注意：首页文本项的 .btn-view 已被改为 <a href="?s=<share_code>">，
+        // 所以这里只接管老的/遗留的带 data-content 的 <button> 形态。
         listContainer.addEventListener('click', function(e) {
             const viewBtn = e.target.closest('.btn-view');
-            if (viewBtn) {
-                const content = viewBtn.getAttribute('data-content');
-                if (content) openCodeModal(content);
-                return;
+            if (!viewBtn) return;
+            const content = viewBtn.getAttribute('data-content');
+            if (content) {
+                e.preventDefault();
+                openCodeModal(content);
             }
+            // 否则：让 <a> 默认行为跳转到分享页（密码 gate 在分享页）
         });
 
-        // 复制按钮
+        // 复制按钮（同上：带 data-content 的才拦截，否则跳分享页）
         listContainer.addEventListener('click', async function(e) {
             const copyBtn = e.target.closest('.btn-copy');
             if (!copyBtn) return;
             const content = copyBtn.getAttribute('data-content');
-            if (!content) return;
+            if (!content) return; // 让 <a> 默认跳转接管
+            e.preventDefault();
             const result = await copyToClipboard(content);
             if (result.success) {
                 showToast('文本已复制到剪贴板', 'success');
@@ -1946,20 +1951,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
                     '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
                     '</div></div>';
-            } else {
-                const preview = item.content_preview ? escapeHtml(item.content_preview) : '';
+} else {
+                // 搜索结果中的文本项：不渲染 content/content_preview 到 DOM（会泄密），
+                // "展开"/"复制"按钮统一跳转到 ?s=<share_code>，由分享页负责密码 gate + 内容渲染。
+                const shareUrl = '?s=' + encodeURIComponent(item.share_code);
+                const textLabel = item.has_password ? '文本片段 [密码保护]' : '文本片段';
                 html += '<div class="item" data-id="' + item.id + '" data-share-code="' + item.share_code + '" data-type="text">' +
                     '<div class="item-select"><input type="checkbox" class="item-checkbox" data-id="' + item.id + '"></div>' +
                     '<div class="item-info">' +
                     '<div class="item-name">' + lockIcon +
-                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y1="13"/><line x1="16" y1="17" x2="8" y1="17"/></svg>' +
                     '文本片段</div>' +
                     '<div class="item-meta">入库: ' + item.time_formatted + ' • 剩余: ' + item.expire_formatted + downloadCount + '</div>' +
-                    (preview ? '<div class="text-preview"><pre>' + preview + '...</pre></div>' : '') +
+                    '<div class="text-preview"><pre class="text-preview-label">' + textLabel + '</pre></div>' +
                     '</div>' +
                     '<div class="item-actions">' +
-                    '<button class="btn-small btn-secondary btn-view" data-id="' + item.id + '" data-content="' + escapeAttr(item.content || item.content_preview || '') + '">展开</button>' +
-                    '<button class="btn-small btn-secondary btn-copy" data-content="' + escapeAttr(item.content || item.content_preview || '') + '">复制</button>' +
+                    '<a href="' + shareUrl + '" class="btn-small btn-secondary btn-view">展开</a>' +
+                    '<a href="' + shareUrl + '" class="btn-small btn-secondary btn-copy">复制</a>' +
                     '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
                     '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
                     '</div></div>';
