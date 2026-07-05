@@ -71,6 +71,43 @@ function recordRateLimitAttempt() {
 }
 
 /**
+ * 通用按 key 维度的速率限制检查
+ *
+ * 与 isRateLimited() 区别：后者固定用 large_file_password_attempts session key，
+ * 这里允许调用方传任意 key（如 share_pwd_<sha1(code+ip)>、admin_login_<ip>），
+ * 多个独立限流维度互不污染。
+ *
+ * @param string $key session 维度的限流键名
+ * @param int $maxAttempts 窗口内最大尝试次数
+ * @param int $windowSeconds 窗口大小（秒）
+ * @return bool true=已被限流（应拒绝）
+ */
+function isRateLimitedByKey($key, $maxAttempts = 5, $windowSeconds = 60) {
+    $now = time();
+    if (!isset($_SESSION[$key])) {
+        $_SESSION[$key] = [];
+    }
+    $attempts = &$_SESSION[$key];
+    $attempts = array_filter($attempts, function ($timestamp) use ($now, $windowSeconds) {
+        return $now - $timestamp < $windowSeconds;
+    });
+    $attempts = array_values($attempts);
+    return count($attempts) >= $maxAttempts;
+}
+
+/**
+ * 记录一次按 key 维度的尝试
+ *
+ * @param string $key session 维度的限流键名
+ */
+function recordRateLimitByKey($key) {
+    if (!isset($_SESSION[$key])) {
+        $_SESSION[$key] = [];
+    }
+    $_SESSION[$key][] = time();
+}
+
+/**
  * 验证CSRF Token
  */
 function validateCSRF() {
@@ -868,13 +905,26 @@ function handleSharePasswordVerify() {
     $shareCode = $_POST['share_code'] ?? '';
     $password = $_POST['password'] ?? '';
 
+    // 速率限制：按 share_code + IP 维度，10 次/60 秒
+    // bcrypt password_verify 单次 ~100ms，无限制会被字典攻击
+    $ip = getRealIP();
+    $rateLimitKey = 'share_pwd_' . sha1($shareCode . '|' . $ip);
+    if (isRateLimitedByKey($rateLimitKey, 10, 60)) {
+        http_response_code(429);
+        echo json_encode(['success' => false, 'message' => '尝试次数过多，请稍后再试'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $item = getItemByCode($shareCode);
     if (!$item) {
+        // 项目不存在也记录一次尝试（避免攻击者通过响应区分 code 是否存在）
+        recordRateLimitByKey($rateLimitKey);
         echo json_encode(['success' => false, 'message' => '项目不存在'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
     if (empty($item['password'])) {
+        // 无密码项目不计入限流（避免误锁合法访问）
         echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -883,6 +933,8 @@ function handleSharePasswordVerify() {
         $_SESSION['unlocked_' . $shareCode] = true;
         echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
     } else {
+        // 仅失败时记录（成功不计数，避免合法用户误锁）
+        recordRateLimitByKey($rateLimitKey);
         echo json_encode(['success' => false, 'message' => '密码错误'], JSON_UNESCAPED_UNICODE);
     }
     exit;
