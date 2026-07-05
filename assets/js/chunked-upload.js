@@ -54,6 +54,8 @@
         var self = this;
         var totalChunks = Math.ceil(file.size / this.chunkSize);
         var sessionId = this._generateSessionId();
+        // I7：保存 largeFilePassword 供 merge 阶段重新校验（防 init 后绕过）
+        var largeFilePassword = meta.largeFilePassword || '';
 
         // 步骤 1：init
         return this._apiCall('upload/init', {
@@ -65,7 +67,7 @@
             total_chunks: totalChunks,
             duration: meta.duration || 600,
             access_password: meta.accessPassword || '',
-            large_file_password: meta.largeFilePassword || '',
+            large_file_password: largeFilePassword,
         }).then(function (initResp) {
             if (self._aborted) throw new Error('上传已取消');
 
@@ -120,9 +122,10 @@
             }).then(function () {
                 if (self._aborted) throw new Error('上传已取消');
 
-                // 步骤 4：merge
+                // 步骤 4：merge（I7：merge 阶段重新校验大文件密码，body 必须带）
                 return self._apiCall('upload/merge', {
                     session_id: actualSessionId,
+                    large_file_password: largeFilePassword,
                 });
             }).then(function (mergeResp) {
                 if (mergeResp.success && mergeResp.item) {

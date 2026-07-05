@@ -41,12 +41,24 @@ function saveData($data) {
 
 /**
  * 清理过期项目
- * 
+ *
+ * I3 性能优化：每次首页加载都跑全表 SELECT + 可能 DELETE + unlink 是性能反模式。
+ * 现在加节流：距上次清理 < 5 分钟则跳过（settings.last_clean_expired 时间戳）。
+ * 副作用：过期项最长可能多存 5 分钟才被清理，业务上可接受。
+ *
  * @param array &$data 兼容参数，SQLite 模式下不使用
  */
 function cleanExpired(&$data = null) {
     $db = getDB();
     $now = time();
+
+    // 节流：5 分钟内已清理过则跳过
+    $lastClean = (int)getSetting('last_clean_expired', '0');
+    if ($lastClean > 0 && ($now - $lastClean) < 300) {
+        return;
+    }
+    // 立即更新时间戳，避免并发请求重复清理
+    setSetting('last_clean_expired', (string)$now);
 
     // 获取即将过期的文件项目（需要删除物理文件）
     $stmt = $db->prepare('SELECT id, path, type, file_hash FROM items WHERE expire > 0 AND expire < ?');
@@ -87,6 +99,17 @@ function cleanExpired(&$data = null) {
     $delStmt->execute([$now]);
 
     $db->commit();
+
+    // 失效 stats 缓存（items 表已变化）
+    invalidateStorageStatsCache();
+}
+
+/**
+ * 失效 getStorageStats 结果缓存
+ * 触发时机：items 表内容发生变化（删除、过期清理、上传新文件后由调用方主动触发）
+ */
+function invalidateStorageStatsCache() {
+    setSetting('storage_stats_cache_ts', '0');
 }
 
 /**
@@ -126,6 +149,165 @@ function getItemById($id) {
 function deleteItemById($id) {
     $result = deleteItemsAtomically([(int)$id]);
     return $result['deleted_count'] === 1;
+}
+
+// ============================================================
+// I6 重构：共用上传/文本创建函数
+// 解决 handleFileUpload / handleApiUpload / handleChunkMerge
+// 与 handleTextSave / handleApiTextSave 严重重复（~200 行复制）的问题
+// ============================================================
+
+/**
+ * 共用：净化文件名为安全的存储文件名
+ *
+ * @param string $originalName 用户上传的原文件名
+ * @return string 净化后的文件名（仅 [a-zA-Z0-9._-]，截断到 200 字符）
+ */
+function sanitizeStoredFilename($originalName) {
+    $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($originalName));
+    return substr($safeName, 0, 200);
+}
+
+/**
+ * 共用：创建文件 item（含去重、SHA-256、move、INSERT、日志）
+ *
+ * 用于：handleFileUpload / handleApiUpload / handleChunkMerge
+ *
+ * @param string $originalName 用户上传的原文件名
+ * @param string $tmpPath 临时文件路径（普通上传是 $_FILES['tmp_name']，chunk 是 merge 后的最终路径）
+ * @param int $size 文件字节数
+ * @param int $duration 保留时长（秒，0=永久）
+ * @param string $accessPassword 访问密码（空字符串=无密码）
+ * @param bool $isAlreadyMoved true=文件已在 UPLOAD_DIR（chunk merge 场景，跳过 move_uploaded_file）
+ * @return array ['item' => array|null, 'owner_token' => string, 'error' => string|null, 'final_path' => string]
+ *                error 非 null 时表示失败（类型校验/移动失败等）
+ */
+function createFileItem($originalName, $tmpPath, $size, $duration, $accessPassword, $isAlreadyMoved = false) {
+    $db = getDB();
+
+    // 1. 文件类型安全验证（白名单 + MIME）
+    $validation = validateFileType($originalName, $tmpPath);
+    if (!$validation['valid']) {
+        return ['item' => null, 'owner_token' => '', 'error' => $validation['error'], 'final_path' => ''];
+    }
+
+    // 2. 计算 SHA-256 + 去重
+    $fileHash = hash_file('sha256', $tmpPath);
+    $dupStmt = $db->prepare("SELECT id, path, share_code FROM items WHERE file_hash = ? AND type = 'file' LIMIT 1");
+    $dupStmt->execute([$fileHash]);
+    $duplicate = $dupStmt->fetch();
+
+    $safeName = sanitizeStoredFilename($originalName);
+
+    // 3. 决定最终路径（去重复用 / 新文件 move）
+    if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
+        $filepath = $duplicate['path'];
+        // chunk merge 场景：临时拼接的文件不再需要，删掉
+        if ($isAlreadyMoved && $tmpPath !== $filepath && file_exists($tmpPath)) {
+            @unlink($tmpPath);
+        }
+    } else {
+        $filename = time() . '_' . uniqid() . '_' . $safeName;
+        $filepath = UPLOAD_DIR . $filename;
+        if (!is_dir(UPLOAD_DIR)) {
+            mkdir(UPLOAD_DIR, 0755, true);
+        }
+        if ($isAlreadyMoved) {
+            // chunk merge：文件已在 UPLOAD_DIR 临时位置，rename 到去重新位置
+            if (!@rename($tmpPath, $filepath)) {
+                return ['item' => null, 'owner_token' => '', 'error' => "文件 {$originalName} 移动失败", 'final_path' => ''];
+            }
+        } else {
+            if (!move_uploaded_file($tmpPath, $filepath)) {
+                return ['item' => null, 'owner_token' => '', 'error' => "文件 {$originalName} 移动失败", 'final_path' => ''];
+            }
+        }
+    }
+
+    // 4. 检测 MIME
+    $mimeType = '';
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $filepath);
+        finfo_close($finfo);
+    }
+
+    // 5. INSERT items
+    $expire = $duration === 0 ? 0 : time() + $duration;
+    $shareCode = generateShareCode($db);
+    $ownerToken = generateOwnerToken($db);
+    $ownerTokenHash = hash('sha256', $ownerToken);
+    $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
+
+    $stmt = $db->prepare('
+        INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+    $stmt->execute([
+        $shareCode, 'file', $originalName, $filepath, $size,
+        $fileHash, $mimeType, $passwordHash, 0,
+        getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+        time(), $expire, $duration, $ownerTokenHash,
+    ]);
+
+    $itemId = $db->lastInsertId();
+    logUploadToDb($itemId, $originalName, $size, $duration);
+    invalidateStorageStatsCache();
+
+    $item = getItemById($itemId);
+    return [
+        'item' => $item,
+        'owner_token' => $ownerToken,
+        'error' => null,
+        'final_path' => $filepath,
+    ];
+}
+
+/**
+ * 共用：创建文本 item
+ *
+ * 用于：handleTextSave / handleApiTextSave
+ *
+ * @param string $text 文本内容
+ * @param int $duration 保留时长（秒，0=永久）
+ * @param string $accessPassword 访问密码
+ * @return array ['item' => array, 'owner_token' => string]
+ */
+function createTextItem($text, $duration, $accessPassword) {
+    $db = getDB();
+
+    $expire = $duration === 0 ? 0 : time() + $duration;
+    $shareCode = generateShareCode($db);
+    $ownerToken = generateOwnerToken($db);
+    $ownerTokenHash = hash('sha256', $ownerToken);
+    $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
+
+    $stmt = $db->prepare('
+        INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+    $stmt->execute([
+        $shareCode, 'text', $text, strlen($text),
+        $passwordHash, 0,
+        getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+        time(), $expire, $duration, $ownerTokenHash,
+    ]);
+
+    $itemId = $db->lastInsertId();
+
+    // 日志：不记录原文（隐私/安全，密码保护项尤为严重），仅记录类型 + 大小 + 是否密码保护
+    $logLabel = '文本片段';
+    if (!empty($accessPassword)) {
+        $logLabel .= ' [密码保护]';
+    }
+    logUploadToDb($itemId, $logLabel, strlen($text), $duration);
+    invalidateStorageStatsCache();
+
+    $item = getItemById($itemId);
+    return [
+        'item' => $item,
+        'owner_token' => $ownerToken,
+    ];
 }
 
 /**
@@ -221,6 +403,11 @@ function deleteItemsAtomically(array $ids) {
         error_log('deleteItemsAtomically failed: ' . $e->getMessage());
     }
 
+    // 失效 stats 缓存（items 表已变化，仅在确实有删除时）
+    if (!empty($deleted)) {
+        invalidateStorageStatsCache();
+    }
+
     return ['deleted' => $deleted, 'errors' => $errors, 'deleted_count' => count($deleted)];
 }
 
@@ -236,15 +423,17 @@ function batchDeleteItems($ids) {
 
 /**
  * 搜索项目
- * 
+ *
  * @param string $query 搜索关键词
  * @param string $typeFilter 类型过滤 (all/file/text)
  * @param string $categoryFilter 分类过滤 (image/video/audio/doc/code/archive)
  * @param string $sort 排序字段 (time/size/name/expire)
  * @param string $sortOrder 排序方向 (desc/asc)
+ * @param int|null $limit 限制条数（null=不限，I4 admin 分页用）
+ * @param int $offset 偏移量（I4 admin 分页用）
  * @return array
  */
-function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $sort = 'time', $sortOrder = 'desc') {
+function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $sort = 'time', $sortOrder = 'desc', $limit = null, $offset = 0) {
     $db = getDB();
     $params = [];
     $where = ['1=1'];
@@ -285,10 +474,59 @@ function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $so
     $sort = in_array($sort, $allowedSorts) ? $sort : 'time';
     $sortOrder = strtolower($sortOrder) === 'asc' ? 'ASC' : 'DESC';
 
-    $sql = "SELECT * FROM items WHERE {$whereClause} ORDER BY {$sort} {$sortOrder}";
+    // I4：可选 limit/offset（向后兼容：null=不限）
+    $limitClause = '';
+    if ($limit !== null) {
+        $limit = max(1, (int)$limit);
+        $offset = max(0, (int)$offset);
+        $limitClause = " LIMIT {$limit} OFFSET {$offset}";
+    }
+
+    $sql = "SELECT * FROM items WHERE {$whereClause} ORDER BY {$sort} {$sortOrder}{$limitClause}";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
+}
+
+/**
+ * 统计满足搜索条件的总数（用于 admin items 分页 UI）
+ *
+ * 参数与 searchItems 一致（除 limit/offset）
+ */
+function countSearchItems($query = '', $typeFilter = 'all', $categoryFilter = '') {
+    $db = getDB();
+    $params = [];
+    $where = ['1=1'];
+
+    if (!empty($query)) {
+        $where[] = '(name LIKE ? OR content LIKE ?)';
+        $params[] = '%' . $query . '%';
+        $params[] = '%' . $query . '%';
+    }
+
+    if ($typeFilter === 'file') {
+        $where[] = "type = 'file'";
+    } elseif ($typeFilter === 'text') {
+        $where[] = "type = 'text'";
+    }
+
+    if (!empty($categoryFilter)) {
+        $extensions = getCategoryExtensions($categoryFilter);
+        if (!empty($extensions)) {
+            $nameConditions = [];
+            foreach ($extensions as $ext) {
+                $nameConditions[] = "name LIKE ?";
+                $params[] = '%.' . $ext;
+            }
+            $where[] = "type = 'file' AND (" . implode(' OR ', $nameConditions) . ")";
+        }
+    }
+
+    $whereClause = implode(' AND ', $where);
+    $sql = "SELECT COUNT(*) FROM items WHERE {$whereClause}";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    return (int)$stmt->fetchColumn();
 }
 
 /**
@@ -330,12 +568,24 @@ function incrementDownloadCount($id, $ip = '', $userAgent = '') {
     ');
     $logStmt->execute([$id, $ip, $userAgent, time()]);
 
-    // 清理旧日志（保留最近 10000 条）
-    $db->exec('
-        DELETE FROM download_logs WHERE id NOT IN (
-            SELECT id FROM download_logs ORDER BY download_time DESC LIMIT 10000
-        )
-    ');
+    // M11：日志清理移出热路径
+    // 原实现每次下载都跑 DELETE FROM download_logs WHERE id NOT IN (... LIMIT 10000)
+    // 全表子查询，下载高峰时放大 DB 写入。
+    // 改为：settings 表计数器 download_logs_cleaned_at，距离上次 > 1 小时才清理
+    $lastClean = (int)getSetting('download_logs_cleaned_at', '0');
+    if ($lastClean === 0 || (time() - $lastClean) > 3600) {
+        setSetting('download_logs_cleaned_at', (string)time());
+        try {
+            // 保留最近 10000 条
+            $idsToKeep = $db->query('SELECT id FROM download_logs ORDER BY download_time DESC LIMIT 10000')->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($idsToKeep)) {
+                $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
+                $db->prepare("DELETE FROM download_logs WHERE id NOT IN ($placeholders)")->execute($idsToKeep);
+            }
+        } catch (Exception $e) {
+            error_log('download_logs cleanup failed: ' . $e->getMessage());
+        }
+    }
 }
 
 /**
@@ -364,20 +614,26 @@ function logUploadToDb($itemId, $filename, $filesize, $duration) {
         'upload'
     ]);
 
-    // 清理旧日志（保留最近 500 条）
-    // 使用两步清理：先查 id，再 DELETE — 避免 SQLite 同表子查询限制
-    try {
-        $idsToKeep = $db->query('
-            SELECT id FROM upload_logs ORDER BY upload_time DESC LIMIT 500
-        ')->fetchAll(PDO::FETCH_COLUMN);
-        if (!empty($idsToKeep)) {
-            $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
-            $db->prepare("DELETE FROM upload_logs WHERE id NOT IN ($placeholders)")
-               ->execute($idsToKeep);
+    // M11：日志清理移出热路径（与 incrementDownloadCount 一致）
+    // settings 表计数器 upload_logs_cleaned_at，距离上次 > 1 小时才清理
+    $lastClean = (int)getSetting('upload_logs_cleaned_at', '0');
+    if ($lastClean === 0 || (time() - $lastClean) > 3600) {
+        setSetting('upload_logs_cleaned_at', (string)time());
+        try {
+            // 清理旧日志（保留最近 500 条）
+            // 使用两步清理：先查 id，再 DELETE — 避免 SQLite 同表子查询限制
+            $idsToKeep = $db->query('
+                SELECT id FROM upload_logs ORDER BY upload_time DESC LIMIT 500
+            ')->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($idsToKeep)) {
+                $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
+                $db->prepare("DELETE FROM upload_logs WHERE id NOT IN ($placeholders)")
+                   ->execute($idsToKeep);
+            }
+        } catch (Exception $e) {
+            // 清理失败不影响主流程
+            error_log('logUploadToDb cleanup failed: ' . $e->getMessage());
         }
-    } catch (Exception $e) {
-        // 清理失败不影响主流程
-        error_log('logUploadToDb cleanup failed: ' . $e->getMessage());
     }
 }
 
@@ -454,11 +710,29 @@ function maskIP($ip) {
 
 /**
  * 获取存储统计信息
- * 
+ *
+ * I3 性能优化：
+ *   1. 6 次分类 SUM 合并为 1 次 SQL（CASE WHEN 分列 SUM）
+ *   2. 结果缓存到 settings.storage_stats_cache (JSON)，5 分钟过期
+ *
  * @return array
  */
 function getStorageStats() {
     $db = getDB();
+
+    // 缓存检查：5 分钟内的结果直接复用
+    $cacheKey = 'storage_stats_cache';
+    $cacheTsKey = 'storage_stats_cache_ts';
+    $cachedTs = (int)getSetting($cacheTsKey, '0');
+    if ($cachedTs > 0 && (time() - $cachedTs) < 300) {
+        $cached = getSetting($cacheKey, '');
+        if (!empty($cached)) {
+            $decoded = json_decode($cached, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+    }
 
     $stats = [
         'total_items' => 0,
@@ -469,36 +743,49 @@ function getStorageStats() {
         'daily_uploads' => [],
     ];
 
-    // 基本计数
-    $stats['total_items'] = $db->query('SELECT COUNT(*) as cnt FROM items')->fetch()['cnt'];
-    $stats['file_count'] = $db->query("SELECT COUNT(*) as cnt FROM items WHERE type = 'file'")->fetch()['cnt'];
-    $stats['text_count'] = $db->query("SELECT COUNT(*) as cnt FROM items WHERE type = 'text'")->fetch()['cnt'];
+    // 基本计数 + 文件总大小（合并到一条语句）
+    $row = $db->query("
+        SELECT
+            (SELECT COUNT(*) FROM items) AS total_items,
+            (SELECT COUNT(*) FROM items WHERE type = 'file') AS file_count,
+            (SELECT COUNT(*) FROM items WHERE type = 'text') AS text_count,
+            (SELECT COALESCE(SUM(size), 0) FROM items WHERE type = 'file') AS total_size
+    ")->fetch();
+    $stats['total_items'] = (int)$row['total_items'];
+    $stats['file_count'] = (int)$row['file_count'];
+    $stats['text_count'] = (int)$row['text_count'];
+    $stats['total_size'] = (int)$row['total_size'];
 
-    // 文件总大小
-    $sizeResult = $db->query("SELECT COALESCE(SUM(size), 0) as total FROM items WHERE type = 'file'")->fetch();
-    $stats['total_size'] = $sizeResult['total'];
-
-    // 按类型分类大小
+    // 按类型分类大小 — 一次 SQL 用 CASE WHEN 分列 SUM
+    // 每个 extension 构造一个 LIKE，归属到对应分类的 SUM
     $categories = ['image', 'video', 'audio', 'doc', 'code', 'archive'];
+    $caseParts = [];
+    $params = [];
     foreach ($categories as $cat) {
         $extensions = getCategoryExtensions($cat);
-        $size = 0;
-        if (!empty($extensions)) {
-            $placeholders = implode(',', array_fill(0, count($extensions), '?'));
-            $conditions = [];
-            foreach ($extensions as $ext) {
-                $conditions[] = "name LIKE ?";
-            }
-            $likeConditions = implode(' OR ', $conditions);
-            $stmt = $db->prepare("SELECT COALESCE(SUM(size), 0) as total FROM items WHERE type = 'file' AND ({$likeConditions})");
-            $params = [];
-            foreach ($extensions as $ext) {
-                $params[] = '%.' . $ext;
-            }
-            $stmt->execute($params);
-            $size = $stmt->fetch()['total'];
+        if (empty($extensions)) {
+            $caseParts[$cat] = '0';
+            continue;
         }
-        $stats['category_sizes'][$cat] = $size;
+        // 同一分类的所有扩展名 OR 起来，匹配则累加 size
+        $conds = [];
+        foreach ($extensions as $ext) {
+            $conds[] = 'name LIKE ?';
+            $params[] = '%.' . $ext;
+        }
+        $caseParts[$cat] = implode(' OR ', $conds);
+    }
+    // 构造 SUM(CASE WHEN <cat-conds> THEN size ELSE 0 END) AS <cat>
+    $sumExprs = [];
+    foreach ($categories as $cat) {
+        $sumExprs[] = "SUM(CASE WHEN ({$caseParts[$cat]}) THEN size ELSE 0 END) AS {$cat}";
+    }
+    $sql = "SELECT " . implode(', ', $sumExprs) . " FROM items WHERE type = 'file'";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $catRow = $stmt->fetch();
+    foreach ($categories as $cat) {
+        $stats['category_sizes'][$cat] = (int)($catRow[$cat] ?? 0);
     }
 
     // 最近 7 天每日上传量
@@ -512,6 +799,10 @@ function getStorageStats() {
     ');
     $stmt->execute([$sevenDaysAgo]);
     $stats['daily_uploads'] = $stmt->fetchAll();
+
+    // 写缓存
+    setSetting($cacheKey, json_encode($stats, JSON_UNESCAPED_UNICODE));
+    setSetting($cacheTsKey, (string)time());
 
     return $stats;
 }

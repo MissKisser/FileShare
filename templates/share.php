@@ -527,8 +527,12 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                         <div class="share-actions">
                             <a href="?download=<?php echo $item['id']; ?>" class="btn btn-primary">下载文件</a>
                             <?php
+                                // C5 安全加固：SVG 不再列入"在线预览"按钮 —— ?preview=<svg>
+                                // 会触发 attachment 下载（防 SVG 内嵌脚本 XSS），UX 上等同于"下载文件"，
+                                // 因此对 SVG 隐藏预览按钮，避免用户困惑。SVG 仍可通过内联 <img>
+                                // 区域显示（img 标签本身不执行 SVG 脚本，安全）。
                                 $previewableExts = array_merge(
-                                    array('jpg','jpeg','png','gif','webp','bmp','svg','ico'),
+                                    array('jpg','jpeg','png','gif','webp','bmp','ico'),
                                     array('mp4','webm','ogv','ogg'),
                                     array('mp3','wav','aac','flac','m4a','opus'),
                                     array('pdf','md','markdown')
@@ -594,7 +598,10 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                         <!--
                             Owner 管理入口（仅本人可见）
                             来源：URL ?manage=<token> 验证成功 / 本会话已验过
-                            删除按钮需 manage_token 存在（保证后续 POST 能通过）
+                            删除按钮需 manage_token 存在（保证后续 POST 能通过）。
+                            C4 修复：明文 token 不再存 session，因此去掉 URL 里的 ?manage=
+                            后只能识别身份（展示提示），不再渲染删除按钮 —— 删除请使用
+                            原始管理链接 ?s=<code>&manage=<token>。
                         -->
                         <div class="share-sidebar-section share-owner-section">
                             <div class="share-sidebar-label">管理操作</div>
@@ -602,7 +609,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                                 <button type="button" class="btn btn-danger btn-sm btn-block" id="ownerDeleteBtn">删除我的上传</button>
                                 <p class="share-owner-hint">这是上传者本人才能看到的操作</p>
                             <?php else: ?>
-                                <p class="share-owner-hint">已识别为上传者；如需删除，请使用原始管理链接</p>
+                                <p class="share-owner-hint">已识别为上传者；如需删除，请使用原始管理链接（带 ?manage= 参数）</p>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>

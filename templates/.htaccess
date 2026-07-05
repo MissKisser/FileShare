@@ -1,1 +1,12 @@
-Deny from all
+# 拒绝直接访问 templates/ 目录下的 PHP 模板（M3 升级 Apache 2.4 双语法）
+# 模板只能由 controllers/handlers 通过 require 加载渲染
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 兼容（phpStudy 旧版等）
+    Order deny,allow
+    Deny from all
+</IfModule>

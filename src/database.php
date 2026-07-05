@@ -64,7 +64,9 @@ function initDB($db) {
             time            INTEGER NOT NULL,
             expire          INTEGER NOT NULL DEFAULT 0,
             duration        INTEGER NOT NULL DEFAULT 600,
-            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            -- M9: 原 created_at DATETIME DEFAULT CURRENT_TIMESTAMP 列从未被读取，已移除。
+            -- 老库通过增量迁移保留该列（SQLite 不支持 ALTER DROP COLUMN），新库不再声明。
+            -- 业务时间字段统一用 time (INTEGER Unix 时间戳)。
             -- owner 凭证：存 sha256(owner_token) 而不是明文。owner_token 是创建者收到的
             -- 管理链接 ?s=<code>&manage=<token> 里的明文 token，DB 泄露不丢凭证。
             -- 老数据此列为 NULL，admin 删除依然工作，owner 端只能删了重建。
@@ -133,24 +135,26 @@ function initDB($db) {
         );
     ");
 
-    // 插入默认设置
+    // 插入默认设置（仅基础 3 列 — 元数据 label/description/category/control_type/sort_order
+    // 由 runIncrementalMigrations() 通过 ALTER TABLE ADD COLUMN + UPDATE 统一回填，
+    // 避免"INSERT 引用了尚不存在的列"导致全新部署启动崩溃。）
     $now = time();
-    $stmt = $db->prepare('INSERT INTO settings (key, value, updated_at, label, description, category, control_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     $defaults = [
-        ['site_title', '文件上传与文本存储系统', $now, '网站标题', '显示在浏览器标签和页面标题', 'site', 'text', 10],
-        ['site_subtitle', '上传文件或文本，生成分享链接', $now, '网站副标题', '显示在主页大标题下方', 'site', 'text', 20],
-        ['default_duration', '600', $now, '默认有效期（秒）', '上传项的默认过期时间，0 表示永不过期', 'upload', 'number', 30],
-        ['max_file_size_normal', (string)(200 * 1024 * 1024), $now, '普通上传大小上限', '字节数，可使用 1MB/200MB/2GB 等单位', 'upload', 'text', 40],
-        ['max_file_size_large', (string)(2048 * 1024 * 1024), $now, '分块上传大小上限', '超出此大小将走分块上传流程', 'upload', 'text', 50],
-        ['ip_blacklist', '', $now, 'IP 黑名单', '每行一个 IP 或 CIDR，留空表示不限制', 'security', 'textarea', 60],
-        ['admin_session_lifetime', '7200', $now, '后台会话有效期（秒）', '管理员登录态保持时间', 'security', 'number', 70],
-        ['api_enabled', '1', $now, '启用 API', '关闭后所有 /api/* 请求返回 403', 'api', 'switch', 80],
+        ['site_title', '文件上传与文本存储系统'],
+        ['site_subtitle', '上传文件或文本，生成分享链接'],
+        ['default_duration', '600'],
+        ['max_file_size_normal', (string)(200 * 1024 * 1024)],
+        ['max_file_size_large', (string)(2048 * 1024 * 1024)],
+        ['ip_blacklist', ''],
+        ['admin_session_lifetime', '7200'],
+        ['api_enabled', '1'],
     ];
+    $stmt = $db->prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
     foreach ($defaults as $row) {
-        $stmt->execute($row);
+        $stmt->execute([$row[0], $row[1], $now]);
     }
 
-    // 运行增量迁移（首次建表后也需补齐新字段）
+    // 运行增量迁移（首次建表后补齐新字段 + 元数据回填）
     runIncrementalMigrations($db);
 }
 
@@ -330,9 +334,16 @@ function migrateJsonToSqlite() {
                 $stats['items']++;
             }
 
-            // 备份旧文件
+            // 备份旧文件（M12：rename 跨设备失败回退到 copy + unlink）
             if (file_exists($dataFile) && !file_exists($dataFile . '.bak')) {
-                rename($dataFile, $dataFile . '.bak');
+                if (!@rename($dataFile, $dataFile . '.bak')) {
+                    // rename 失败（常见于跨挂载点），降级到 copy + unlink
+                    if (@copy($dataFile, $dataFile . '.bak')) {
+                        @unlink($dataFile);
+                    } else {
+                        throw new RuntimeException("无法备份 data.json 到 data.json.bak（权限或磁盘空间）");
+                    }
+                }
             }
         }
     }
@@ -364,9 +375,15 @@ function migrateJsonToSqlite() {
                 $stats['logs']++;
             }
 
-            // 备份旧文件
+            // 备份旧文件（M12：rename 跨设备失败回退到 copy + unlink）
             if (file_exists($logFile) && !file_exists($logFile . '.bak')) {
-                rename($logFile, $logFile . '.bak');
+                if (!@rename($logFile, $logFile . '.bak')) {
+                    if (@copy($logFile, $logFile . '.bak')) {
+                        @unlink($logFile);
+                    } else {
+                        throw new RuntimeException("无法备份 upload_log.json 到 .bak（权限或磁盘空间）");
+                    }
+                }
             }
         }
     }

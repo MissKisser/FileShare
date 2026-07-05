@@ -65,17 +65,20 @@ FileShare 提供 RESTful API 接口，支持通过命令行工具或脚本进行
 
 ### 使用 Token
 
-在需要认证的请求中，通过以下方式之一传递 Token：
+所有需要认证的 API 请求**必须**通过 Authorization Header 传递 Token：
 
-1. **Authorization Header（推荐）：**
-   ```
-   Authorization: Bearer {access_token}
-   ```
+```
+Authorization: Bearer {access_token}
+```
 
-2. **查询参数：**
-   ```
-   ?api=items&token={access_token}
-   ```
+> ⚠️ **不再支持查询参数 `?token=`**（I5 安全加固）：URL 中的 token 会被记入
+> access log、Referer 头、浏览器历史，造成凭证泄露。所有客户端必须改用 Header。
+
+**示例：**
+```bash
+curl -H "Authorization: Bearer {access_token}" \
+     "https://your-domain.com/index.php?api=items"
+```
 
 ---
 
@@ -335,24 +338,41 @@ curl -X POST 'https://your-domain.com/?api=text' \
 **请求体（JSON）：**
 ```json
 {
+  "session_id": "可选，resume 时填已有 session",
   "filename": "large-file.zip",
-  "filesize": 536870912,
-  "chunk_count": 108,
+  "size": 536870912,
+  "mime": "application/zip",
+  "chunk_size": 5242880,
+  "total_chunks": 108,
   "duration": 86400,
-  "access_password": ""
+  "access_password": "",
+  "large_file_password": "当 size > 200MB 时必填",
+  "resume": false
 }
 ```
+
+**字段说明：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `filename` | string | ✓ | 原始文件名 |
+| `size` | int | ✓ | 文件总字节数（注意字段名是 `size`，非 `filesize`） |
+| `total_chunks` | int | ✓ | 总分块数（注意字段名是 `total_chunks`，非 `chunk_count`） |
+| `chunk_size` | int | ✗ | 单块大小，默认 5MB |
+| `large_file_password` | string | size>200MB 时必填 | 大文件密码（init 和 merge 都要校验） |
+| `resume` | bool | ✗ | 续传模式，复用旧 session_id |
 
 **响应：**
 ```json
 {
   "success": true,
   "session_id": "a1b2c3d4e5f6...",
-  "chunk_count": 108,
-  "received_chunks": 0,
-  "message": "上传会话已创建"
+  "received_chunks": "000000...0",
+  "total_chunks": 108
 }
 ```
+
+> `received_chunks` 是**字符串位图**（每位 '0'/'1' 表示该块是否已收到），不是数字。
 
 ### 上传单个块
 
@@ -364,15 +384,14 @@ curl -X POST 'https://your-domain.com/?api=text' \
 |------|------|------|
 | `session_id` | string | 上传会话 ID |
 | `chunk_index` | int | 块序号（0-based） |
-| `chunk` | file | 块数据（≤5MB） |
+| `file` | file | 块数据（≤5MB）（注意字段名是 `file`，非 `chunk`） |
 
 **响应：**
 ```json
 {
   "success": true,
   "chunk_index": 0,
-  "received_chunks": 1,
-  "total_chunks": 108
+  "received_chunks": "100000...0"
 }
 ```
 
@@ -383,9 +402,16 @@ curl -X POST 'https://your-domain.com/?api=text' \
 **请求体（JSON）：**
 ```json
 {
-  "session_id": "a1b2c3d4e5f6..."
+  "session_id": "a1b2c3d4e5f6...",
+  "large_file_password": "I7 安全加固：init 时声明的 size > 200MB 时必填，重新校验"
 }
 ```
+
+**I7 安全机制：**
+- merge 阶段重新校验大文件密码（防 init 后篡改）
+- 实测合并后 filesize 与 init 声明偏差 > 1% 拒绝（防分片篡改）
+- 乐观锁防止并发 merge（status: uploading → merging → merged）
+- 失败时 status 回退为 `uploading` 允许重试
 
 **响应：**
 ```json
@@ -395,12 +421,11 @@ curl -X POST 'https://your-domain.com/?api=text' \
     "id": 42,
     "share_code": "e5f6g7h8",
     "share_url": "https://your-domain.com/?s=e5f6g7h8",
-    "type": "file",
+    "manage_url": "https://your-domain.com/?s=e5f6g7h8&manage=<64字符owner_token>",
     "name": "large-file.zip",
     "size": 536870912,
     "size_formatted": "512 MB"
-  },
-  "message": "文件合并完成"
+  }
 }
 ```
 
@@ -408,13 +433,32 @@ curl -X POST 'https://your-domain.com/?api=text' \
 
 ## 缩略图
 
-### 获取/生成缩略图
+本系统提供两个缩略图相关端点，**用途不同**：
+
+### 懒生成缩略图元数据（JSON）
 
 **GET** `?action=thumb&item_id={id}`
 
-为指定文件生成缩略图（图片/视频），返回缩略图图片。如果缩略图已存在则直接返回，否则懒生成。
+触发懒生成并返回 JSON 元数据（**非** 图片二进制）。
 
-**响应：** 图片文件（Content-Type: image/webp 或 image/jpeg）
+**响应（JSON）：**
+```json
+{
+  "success": true,
+  "thumbnail_path": "<basename>.thumb.jpg 或 failed:<reason>",
+  "status": "ready" | "failed" | "none"
+}
+```
+
+### 鉴权获取缩略图二进制
+
+**GET** `?thumb={id}`
+
+返回缩略图图片二进制（Content-Type: image/jpeg）。会校验密码保护：仅当该
+item 已通过分享页解锁（session `unlocked_<code>` 标记）才输出，避免缩略图
+绕过密码保护。
+
+**响应：** JPEG 图片（Content-Type: image/jpeg）
 
 ---
 

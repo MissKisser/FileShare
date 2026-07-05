@@ -93,13 +93,13 @@ function validateApiToken($requiredPermission = 'read') {
         $token = $matches[1];
     }
 
-    // 也支持查询参数
-    if (empty($token)) {
-        $token = $_GET['token'] ?? '';
-    }
+    // I5 安全加固：不再支持 $_GET['token'] fallback —— URL 中的 token 会被
+    // 记入 access log、Referer 头、浏览器历史，造成凭证泄露。所有客户端
+    // 必须使用 Authorization: Bearer <token> Header。
+    // 兼容性影响：原用 ?token= 调用的客户端需改为 Header 方式。
 
     if (empty($token)) {
-        apiError('缺少认证 Token', 401);
+        apiError('缺少认证 Token（请使用 Authorization: Bearer <token> Header）', 401);
     }
 
     $tokenHash = hash('sha256', $token);
@@ -250,6 +250,14 @@ function handleApiRequest() {
 // ============================================================
 
 function handleApiAuthToken() {
+    // 速率限制：按 IP 维度，10 次/60 秒
+    // API auth 端点用 ADMIN_PASSWORD 认证，默认值弱，必须防爆破
+    $rateLimitKey = 'api_auth_' . getRealIP();
+    if (isRateLimitedByKey($rateLimitKey, 10, 60)) {
+        http_response_code(429);
+        apiError('尝试次数过多，请稍后再试', 429);
+    }
+
     $input = json_decode(file_get_contents('php://input'), true);
     $password = $input['password'] ?? '';
 
@@ -262,6 +270,7 @@ function handleApiAuthToken() {
     }
 
     if (!hash_equals(ADMIN_PASSWORD, $password)) {
+        recordRateLimitByKey($rateLimitKey);
         apiError('密码错误', 401);
     }
 
@@ -415,7 +424,6 @@ function handleApiUpload() {
         apiError('请提供文件', 400);
     }
 
-    $db = getDB();
     $duration = intval($_POST['duration'] ?? 600);
     $accessPassword = $_POST['access_password'] ?? '';
     $files = $_FILES['files'];
@@ -436,67 +444,24 @@ function handleApiUpload() {
         if ($files['error'][$i] === UPLOAD_ERR_OK) {
             $originalName = $files['name'][$i];
 
-            $validation = validateFileType($originalName, $files['tmp_name'][$i]);
-            if (!$validation['valid']) {
-                $errors[] = $validation['error'];
+            // I6 重构：复用 createFileItem（含类型校验、去重、move、INSERT、日志）
+            $result = createFileItem(
+                $originalName,
+                $files['tmp_name'][$i],
+                $files['size'][$i],
+                $duration,
+                $accessPassword,
+                false
+            );
+            if ($result['error'] !== null) {
+                $errors[] = $result['error'];
                 continue;
             }
 
-            $fileHash = hash_file('sha256', $files['tmp_name'][$i]);
-
-            $dupStmt = $db->prepare('SELECT id, path FROM items WHERE file_hash = ? AND type = \'file\' LIMIT 1');
-            $dupStmt->execute([$fileHash]);
-            $duplicate = $dupStmt->fetch();
-
-            $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($originalName));
-            $safeName = substr($safeName, 0, 200);
-
-            if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
-                $filepath = $duplicate['path'];
-            } else {
-                $filename = time() . '_' . uniqid() . '_' . $safeName;
-                $filepath = UPLOAD_DIR . $filename;
-                if (!is_dir(UPLOAD_DIR)) {
-                    mkdir(UPLOAD_DIR, 0755, true);
-                }
-                if (!move_uploaded_file($files['tmp_name'][$i], $filepath)) {
-                    $errors[] = "文件 {$originalName} 移动失败";
-                    continue;
-                }
-            }
-
-            $mimeType = '';
-            if (function_exists('finfo_open')) {
-                $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                $mimeType = finfo_file($finfo, $filepath);
-                finfo_close($finfo);
-            }
-
-            $expire = $duration === 0 ? 0 : time() + $duration;
-            $shareCode = generateShareCode($db);
-            $ownerToken = generateOwnerToken($db);
-            $ownerTokenHash = hash('sha256', $ownerToken);
-            $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
-
-            $stmt = $db->prepare('
-                INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ');
-            $stmt->execute([
-                $shareCode, 'file', $originalName, $filepath, $files['size'][$i],
-                $fileHash, $mimeType, $passwordHash, 0,
-                getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-                time(), $expire, $duration,
-                $ownerTokenHash
-            ]);
-
-            $itemId = $db->lastInsertId();
-            logUploadToDb($itemId, $originalName, $files['size'][$i], $duration);
-
             $uploadCount++;
-            $apiItem = formatItemForApi(getItemById($itemId));
+            $apiItem = formatItemForApi($result['item']);
             // owner 管理链接（仅创建响应返回一次；明文 token 不入库）
-            $apiItem['manage_url'] = getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken;
+            $apiItem['manage_url'] = getBaseUrl() . '?s=' . $result['item']['share_code'] . '&manage=' . $result['owner_token'];
             $uploadedItems[] = $apiItem;
         } else {
             $errors[] = "文件 {$files['name'][$i]} 上传错误（代码：{$files['error'][$i]}）";
@@ -526,36 +491,12 @@ function handleApiTextSave() {
         apiError('文本内容不能为空', 400);
     }
 
-    $db = getDB();
-    $expire = $duration === 0 ? 0 : time() + $duration;
-    $shareCode = generateShareCode($db);
-    $ownerToken = generateOwnerToken($db);
-    $ownerTokenHash = hash('sha256', $ownerToken);
-    $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
+    // I6 重构：复用 createTextItem
+    $result = createTextItem($text, $duration, $accessPassword);
 
-    $stmt = $db->prepare('
-        INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ');
-    $stmt->execute([
-        $shareCode, 'text', $text, strlen($text),
-        $passwordHash, 0,
-        getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-        time(), $expire, $duration,
-        $ownerTokenHash
-    ]);
-
-    $itemId = $db->lastInsertId();
-    // 日志不记录原文（隐私/安全考虑，密码保护项尤其不能漏）
-    $logLabel = '文本片段';
-    if (!empty($accessPassword)) {
-        $logLabel .= ' [密码保护]';
-    }
-    logUploadToDb($itemId, $logLabel, strlen($text), $duration);
-
-    $apiItem = formatItemForApi(getItemById($itemId));
+    $apiItem = formatItemForApi($result['item']);
     // owner 管理链接（仅创建响应返回一次；明文 token 不入库）
-    $apiItem['manage_url'] = getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken;
+    $apiItem['manage_url'] = getBaseUrl() . '?s=' . $result['item']['share_code'] . '&manage=' . $result['owner_token'];
 
     apiResponse([
         'success' => true,

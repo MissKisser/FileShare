@@ -71,6 +71,43 @@ function recordRateLimitAttempt() {
 }
 
 /**
+ * 通用按 key 维度的速率限制检查
+ *
+ * 与 isRateLimited() 区别：后者固定用 large_file_password_attempts session key，
+ * 这里允许调用方传任意 key（如 share_pwd_<sha1(code+ip)>、admin_login_<ip>），
+ * 多个独立限流维度互不污染。
+ *
+ * @param string $key session 维度的限流键名
+ * @param int $maxAttempts 窗口内最大尝试次数
+ * @param int $windowSeconds 窗口大小（秒）
+ * @return bool true=已被限流（应拒绝）
+ */
+function isRateLimitedByKey($key, $maxAttempts = 5, $windowSeconds = 60) {
+    $now = time();
+    if (!isset($_SESSION[$key])) {
+        $_SESSION[$key] = [];
+    }
+    $attempts = &$_SESSION[$key];
+    $attempts = array_filter($attempts, function ($timestamp) use ($now, $windowSeconds) {
+        return $now - $timestamp < $windowSeconds;
+    });
+    $attempts = array_values($attempts);
+    return count($attempts) >= $maxAttempts;
+}
+
+/**
+ * 记录一次按 key 维度的尝试
+ *
+ * @param string $key session 维度的限流键名
+ */
+function recordRateLimitByKey($key) {
+    if (!isset($_SESSION[$key])) {
+        $_SESSION[$key] = [];
+    }
+    $_SESSION[$key][] = time();
+}
+
+/**
  * 验证CSRF Token
  */
 function validateCSRF() {
@@ -394,98 +431,30 @@ function handleFileUpload() {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
                 $originalName = $files['name'][$i];
 
-                // 文件类型安全验证
-                $validation = validateFileType($originalName, $files['tmp_name'][$i]);
-                if (!$validation['valid']) {
-                    $errors[] = $validation['error'];
+                // I6 重构：复用 createFileItem（含类型校验、去重、move、INSERT、日志）
+                $result = createFileItem(
+                    $originalName,
+                    $files['tmp_name'][$i],
+                    $files['size'][$i],
+                    $duration,
+                    $accessPassword,
+                    false // 普通上传，调用 move_uploaded_file
+                );
+                if ($result['error'] !== null) {
+                    $errors[] = $result['error'];
                     continue;
                 }
 
-                // 计算文件哈希（F10 去重）
-                $fileHash = hash_file('sha256', $files['tmp_name'][$i]);
-
-                // 检查是否有相同哈希的文件已存在
-                $dupStmt = $db->prepare('SELECT id, path, share_code FROM items WHERE file_hash = ? AND type = \'file\' LIMIT 1');
-                $dupStmt->execute([$fileHash]);
-                $duplicate = $dupStmt->fetch();
-
-                // 净化文件名
-                $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($originalName));
-                $safeName = substr($safeName, 0, 200);
-
-                if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
-                    // 去重：复用已有文件路径
-                    $filepath = $duplicate['path'];
-                } else {
-                    // 新文件
-                    $filename = time() . '_' . uniqid() . '_' . $safeName;
-                    $filepath = UPLOAD_DIR . $filename;
-
-                    if (!is_dir(UPLOAD_DIR)) {
-                        mkdir(UPLOAD_DIR, 0755, true);
-                    }
-
-                    if (!move_uploaded_file($files['tmp_name'][$i], $filepath)) {
-                        $errors[] = "文件 {$originalName} 移动失败";
-                        continue;
-                    }
-                }
-
-                // 检测 MIME 类型
-                $mimeType = '';
-                if (function_exists('finfo_open')) {
-                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                    $mimeType = finfo_file($finfo, $filepath);
-                    finfo_close($finfo);
-                }
-
-                $expire = $duration === 0 ? 0 : time() + $duration;
-                $shareCode = generateShareCode($db);
-                $ownerToken = generateOwnerToken($db);
-                $ownerTokenHash = hash('sha256', $ownerToken);
-
-                // 密码处理
-                $passwordHash = null;
-                if (!empty($accessPassword)) {
-                    $passwordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
-                }
-
-                // 插入数据库
-                $stmt = $db->prepare('
-                    INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ');
-                $stmt->execute([
-                    $shareCode,
-                    'file',
-                    $originalName,
-                    $filepath,
-                    $files['size'][$i],
-                    $fileHash,
-                    $mimeType,
-                    $passwordHash,
-                    0,
-                    getRealIP(),
-                    $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-                    time(),
-                    $expire,
-                    $duration,
-                    $ownerTokenHash
-                ]);
-
-                $itemId = $db->lastInsertId();
-
-                // 记录上传日志
-                logUploadToDb($itemId, $originalName, $files['size'][$i], $duration);
-
+                $item = $result['item'];
+                $ownerToken = $result['owner_token'];
                 $uploadCount++;
                 $uploadedItems[] = [
-                    'id' => $itemId,
+                    'id' => $item['id'],
                     'name' => $originalName,
-                    'share_code' => $shareCode,
-                    'share_url' => getBaseUrl() . '?s=' . $shareCode,
+                    'share_code' => $item['share_code'],
+                    'share_url' => getBaseUrl() . '?s=' . $item['share_code'],
                     // owner 管理链接：创建者凭此可删除自己上传
-                    'manage_url' => getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken,
+                    'manage_url' => getBaseUrl() . '?s=' . $item['share_code'] . '&manage=' . $ownerToken,
                     'size' => $files['size'][$i],
                 ];
             } else {
@@ -509,6 +478,9 @@ function handleFileUpload() {
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
 
     } catch (Exception $e) {
+        // I8 加固：PDOException 等异常 message 常含完整 SQL + 文件路径，
+        // 直接回显会泄露 DB schema 给 SQL 注入侦察。改为记 error_log + 模糊提示。
+        error_log('handleFileUpload failed: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
         if (ob_get_level()) {
             ob_flush();
         }
@@ -516,7 +488,7 @@ function handleFileUpload() {
 
         echo json_encode([
             'success' => false,
-            'message' => '上传异常：' . $e->getMessage()
+            'message' => '服务器内部错误，请稍后重试'
         ], JSON_UNESCAPED_UNICODE);
     }
 
@@ -539,47 +511,10 @@ function handleTextSave() {
     $accessPassword = $_POST['access_password'] ?? ''; // F2 访问密码
 
     if (!empty(trim($text))) {
-        $db = getDB();
-        $expire = $duration === 0 ? 0 : time() + $duration;
-        $shareCode = generateShareCode($db);
-        $ownerToken = generateOwnerToken($db);
-        $ownerTokenHash = hash('sha256', $ownerToken);
-
-        // 密码处理
-        $passwordHash = null;
-        if (!empty($accessPassword)) {
-            $passwordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
-        }
-
-        $stmt = $db->prepare('
-            INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ');
-        $stmt->execute([
-            $shareCode,
-            'text',
-            $text,
-            strlen($text),
-            $passwordHash,
-            0,
-            getRealIP(),
-            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-            time(),
-            $expire,
-            $duration,
-            $ownerTokenHash
-        ]);
-
-        $itemId = $db->lastInsertId();
-
-        // 记录日志
-        // 注意：出于隐私/安全考虑，日志不再保存文本原文（前 20 字符可能含敏感信息，
-        // 密码保护项尤为严重）。只记录类型 + 大小 + 是否带密码。
-        $logLabel = '文本片段';
-        if (!empty($accessPassword)) {
-            $logLabel .= ' [密码保护]';
-        }
-        logUploadToDb($itemId, $logLabel, strlen($text), $duration);
+        // I6 重构：复用 createTextItem（含 INSERT、日志）
+        $result = createTextItem($text, $duration, $accessPassword);
+        $shareCode = $result['item']['share_code'];
+        $ownerToken = $result['owner_token'];
 
         // 跳转到 share 页（带 manage 参数让创建者首次就能看到管理入口）
         $_SESSION['message'] = '文本保存成功！分享链接：' . getBaseUrl() . '?s=' . $shareCode;
@@ -823,9 +758,11 @@ function handleSharePage() {
     }
 
     // Owner token 验证（独立于密码，URL 带 ?manage=<token> 时触发）
-    // 设计：
-    //   - URL ?manage=<plaintext> 验证成功后：写 boolean 标记 + 明文 token 到 session
-    //   - 后续本会话访问不带 ?manage= 的 ?s=<code> 仍能展示管理入口（且能 POST 删）
+    // 设计（C4 修复后）：
+    //   - URL ?manage=<plaintext> 验证成功后：仅写 boolean 标记到 session
+    //   - 明文 token **绝不**入 session（session 文件泄露会丢凭证，降级 token 安全等级）
+    //   - 后续本会话访问不带 ?manage= 的 ?s=<code> 仍能识别 owner（展示提示），
+    //     但 POST 删除要求重新带 ?manage=<token>（manageToken 仅当前请求有效）
     //   - 验证失败时静默不报错（防 enumeration）
     $isOwner = false;
     $manageToken = '';
@@ -837,15 +774,13 @@ function handleSharePage() {
         $chk->execute([$code, $tokenHash]);
         if ($chk->fetch()) {
             $isOwner = true;
-            $manageToken = $manageTokenFromUrl;
-            $_SESSION['owner_confirmed_' . $code] = true;
-            // 同时存明文 token 到 session（用于后续无 ?manage= 的访问也能 POST 删）
-            $_SESSION['owner_token_' . $code] = $manageTokenFromUrl;
+            $manageToken = $manageTokenFromUrl; // 仅当前请求局部变量，不写 session
+            $_SESSION['owner_confirmed_' . $code] = true; // 仅 boolean 标记
         }
-    } elseif (!empty($_SESSION['owner_confirmed_' . $code]) && !empty($_SESSION['owner_token_' . $code])) {
-        // 已在本会话验过 owner；从 session 恢复明文 token
+    } elseif (!empty($_SESSION['owner_confirmed_' . $code])) {
+        // 已在本会话验过 owner；识别身份展示提示，但 manageToken 为空
+        // （删除按钮要求 URL 持续带 ?manage= 才会渲染）
         $isOwner = true;
-        $manageToken = $_SESSION['owner_token_' . $code];
     }
 
     define('SHARE_PAGE', true);
@@ -868,13 +803,26 @@ function handleSharePasswordVerify() {
     $shareCode = $_POST['share_code'] ?? '';
     $password = $_POST['password'] ?? '';
 
+    // 速率限制：按 share_code + IP 维度，10 次/60 秒
+    // bcrypt password_verify 单次 ~100ms，无限制会被字典攻击
+    $ip = getRealIP();
+    $rateLimitKey = 'share_pwd_' . sha1($shareCode . '|' . $ip);
+    if (isRateLimitedByKey($rateLimitKey, 10, 60)) {
+        http_response_code(429);
+        echo json_encode(['success' => false, 'message' => '尝试次数过多，请稍后再试'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $item = getItemByCode($shareCode);
     if (!$item) {
+        // 项目不存在也记录一次尝试（避免攻击者通过响应区分 code 是否存在）
+        recordRateLimitByKey($rateLimitKey);
         echo json_encode(['success' => false, 'message' => '项目不存在'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
     if (empty($item['password'])) {
+        // 无密码项目不计入限流（避免误锁合法访问）
         echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -883,6 +831,8 @@ function handleSharePasswordVerify() {
         $_SESSION['unlocked_' . $shareCode] = true;
         echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
     } else {
+        // 仅失败时记录（成功不计数，避免合法用户误锁）
+        recordRateLimitByKey($rateLimitKey);
         echo json_encode(['success' => false, 'message' => '密码错误'], JSON_UNESCAPED_UNICODE);
     }
     exit;
@@ -930,6 +880,19 @@ function handlePreview() {
 
     if (in_array($ext, $imageExts)) {
         // 图片：直接输出
+        // C5 安全加固：SVG 可内嵌 <script> / onload= 等脚本，inline 输出会导致
+        // 同源 XSS（浏览器在 ?preview=<svg> 页面执行 SVG 中的 JS）。
+        // 对 SVG 强制 attachment 下载 + 严格 CSP，杜绝脚本执行；
+        // 其他图片格式（jpg/png/gif/webp/bmp/ico）保持 inline 预览。
+        if ($ext === 'svg') {
+            header('Content-Type: image/svg+xml');
+            header('Content-Disposition: attachment; filename="' . htmlspecialchars(basename($item['name']), ENT_QUOTES, 'UTF-8') . '"');
+            header("Content-Security-Policy: default-src 'none'; sandbox");
+            header('X-Content-Type-Options: nosniff');
+            header('Content-Length: ' . filesize($item['path']));
+            readfile($item['path']);
+            exit;
+        }
         header('Content-Type: ' . $mimeType);
         header('Content-Length: ' . filesize($item['path']));
         readfile($item['path']);
@@ -1131,36 +1094,91 @@ function handlePreview() {
 
 /**
  * 流式输出文件（支持 Range 请求，用于视频/音频）
+ *
+ * I1 加固：严格解析 Range 头，处理：
+ *   - 多 range（bytes=0-100,200-300）→ 忽略 Range，返回 200 全量
+ *   - 非法 range / 语法错 → 忽略 Range，返回 200 全量
+ *   - 越界（start >= size）→ 416 Requested Range Not Satisfiable
+ *   - 开放右端（bytes=100-）→ end 默认 size-1
+ *   - end 超过 size-1 → 夹紧到 size-1
+ *   - fopen/fseek 失败保护
  */
 function streamFile($path, $mimeType) {
+    if (!is_file($path)) {
+        http_response_code(404);
+        echo '文件不存在';
+        exit;
+    }
     $size = filesize($path);
-    $start = 0;
-    $end = $size - 1;
+    if ($size <= 0) {
+        http_response_code(500);
+        echo '文件为空';
+        exit;
+    }
 
     header('Content-Type: ' . $mimeType);
     header('Accept-Ranges: bytes');
 
+    $start = 0;
+    $end = $size - 1;
+    $isPartial = false;
+
     if (isset($_SERVER['HTTP_RANGE'])) {
-        $range = $_SERVER['HTTP_RANGE'];
-        $range = str_replace('bytes=', '', $range);
-        list($start, $end) = explode('-', $range);
-        $start = intval($start);
-        $end = empty($end) ? $size - 1 : intval($end);
-        header('HTTP/1.1 206 Partial Content');
+        $rangeHeader = $_SERVER['HTTP_RANGE'];
+        // 仅接受单 range：bytes=<start>-<end>(可选) 形式
+        // 多 range（含逗号）和非法语法一律忽略，按 200 全量返回
+        if (preg_match('#^bytes=(\d+)-(\d*)$#', $rangeHeader, $m)) {
+            $reqStart = (int)$m[1];
+            $reqEnd = ($m[2] !== '') ? (int)$m[2] : $size - 1;
+
+            if ($reqStart >= $size) {
+                // 越界：返回 416 + Content-Range: bytes */<size>
+                http_response_code(416);
+                header('Content-Range: bytes */' . $size);
+                exit;
+            }
+            if ($reqEnd >= $size) {
+                $reqEnd = $size - 1; // 夹紧
+            }
+            if ($reqStart > $reqEnd) {
+                // start > end：非法，忽略 Range
+                // 走 200 全量
+            } else {
+                $start = $reqStart;
+                $end = $reqEnd;
+                $isPartial = true;
+            }
+        }
+        // 其他形式（多 range、bytes=-500 后缀形式等）→ 忽略，200 全量
+    }
+
+    if ($isPartial) {
+        http_response_code(206);
         header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
     }
 
     header('Content-Length: ' . ($end - $start + 1));
     header('Content-Disposition: inline');
 
-    $fp = fopen($path, 'rb');
-    fseek($fp, $start);
+    $fp = @fopen($path, 'rb');
+    if (!$fp) {
+        http_response_code(500);
+        echo '无法打开文件';
+        exit;
+    }
+    if ($start > 0) {
+        fseek($fp, $start);
+    }
     $remaining = $end - $start + 1;
     $bufferSize = 8192;
     while ($remaining > 0 && !feof($fp)) {
         $read = min($bufferSize, $remaining);
-        echo fread($fp, $read);
-        $remaining -= $read;
+        $chunk = fread($fp, $read);
+        if ($chunk === false) {
+            break; // 读错误，停止输出已读部分
+        }
+        echo $chunk;
+        $remaining -= strlen($chunk);
         flush();
     }
     fclose($fp);

@@ -155,6 +155,30 @@
                     </tbody>
                 </table>
 
+                <?php
+                    // I4：分页导航（保持 query/type 上下文）
+                    $pg = $adminData['pagination'];
+                    if ($pg['total_pages'] > 1):
+                        $pgBase = '/admin/items?q=' . urlencode($adminData['query']) . '&type=' . urlencode($adminData['type_filter']);
+                ?>
+                <div class="pagination" style="margin: 16px 0; display: flex; gap: 8px; align-items: center; justify-content: center;">
+                    <?php if ($pg['has_prev']): ?>
+                        <a class="btn-small btn-secondary" href="<?php echo $pgBase; ?>&page=<?php echo $pg['page'] - 1; ?>">上一页</a>
+                    <?php else: ?>
+                        <span class="btn-small" style="opacity:0.4">上一页</span>
+                    <?php endif; ?>
+                    <span style="font-size:13px;color:var(--text-secondary)">
+                        第 <?php echo $pg['page']; ?> / <?php echo $pg['total_pages']; ?> 页
+                        （共 <?php echo number_format($pg['total']); ?> 项）
+                    </span>
+                    <?php if ($pg['has_next']): ?>
+                        <a class="btn-small btn-secondary" href="<?php echo $pgBase; ?>&page=<?php echo $pg['page'] + 1; ?>">下一页</a>
+                    <?php else: ?>
+                        <span class="btn-small" style="opacity:0.4">下一页</span>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
             <?php elseif ($adminPage === 'logs'): ?>
                 <h1>日志审计</h1>
                 <h2>上传日志 (共 <?php echo $adminData['total_uploads']; ?> 条)</h2>

@@ -46,3 +46,11 @@ storage/fileshare.db
 storage/data.json.bak
 storage/upload_log.json.bak
 uploads/!*
+phpinfo.php
+
+# 本地工具脚本（可能含服务器路径/凭据，不入库）
+/tools/
+
+# Composer 依赖与构建产物
+/vendor/
+/composer.lock
