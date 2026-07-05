@@ -30,44 +30,6 @@
     color: var(--text-muted);
 }
 
-/* 统计卡片 */
-.stats-bar {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
-}
-
-.stat-card {
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: var(--radius-md);
-    padding: 24px;
-    transition: all var(--transition-fast);
-}
-
-.stat-card:hover {
-    box-shadow: var(--card-shadow-hover);
-}
-
-.stat-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-}
-
-.stat-value {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: -0.02em;
-}
-
-.stat-card:nth-child(1) .stat-value { color: var(--accent-blue); }
-.stat-card:nth-child(2) .stat-value { color: var(--accent-green); }
-.stat-card:nth-child(3) .stat-value { color: var(--accent-amber); }
-
 /* 栅格布局 */
 .grid-layout {
     display: grid;

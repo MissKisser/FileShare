@@ -31,18 +31,6 @@
         left: auto;
     }
 
-    .stats-bar {
-        gap: 12px;
-    }
-
-    .stat-card {
-        padding: 20px;
-    }
-
-    .stat-value {
-        font-size: 28px;
-    }
-
     .drag-file-panel,
     .upload-progress-panel {
         width: 360px;
@@ -116,24 +104,6 @@
         bottom: 16px;
     }
 
-    .stats-bar {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-    }
-
-    .stat-card {
-        padding: 14px;
-    }
-
-    .stat-label {
-        font-size: 11px;
-        margin-bottom: 4px;
-    }
-
-    .stat-value {
-        font-size: 22px;
-    }
-
     .btn {
         font-size: 13px;
         padding: 10px 20px;
@@ -177,24 +147,6 @@
     }
 
     .page-header h1 {
-        font-size: 20px;
-    }
-
-    .stats-bar {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-    }
-
-    .stat-card {
-        padding: 12px 10px;
-        text-align: center;
-    }
-
-    .stat-label {
-        font-size: 11px;
-    }
-
-    .stat-value {
         font-size: 20px;
     }
 
@@ -260,25 +212,6 @@
     .page-header p {
         font-size: 12px;
         color: var(--text-secondary);
-    }
-
-    .stats-bar {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-    }
-
-    .stat-card {
-        padding: 10px 8px;
-        text-align: center;
-    }
-
-    .stat-label {
-        font-size: 10px;
-        margin-bottom: 2px;
-    }
-
-    .stat-value {
-        font-size: 18px;
     }
 
     .grid-card {

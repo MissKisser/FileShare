@@ -1450,15 +1450,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
 
-                // 更新统计数字
-                const statCards = doc.querySelectorAll('.stat-card');
-                const currentStats = document.querySelectorAll('.stat-card');
-                if (statCards.length >= 3 && currentStats.length >= 3) {
-                    currentStats[0].querySelector('.stat-value').textContent = statCards[0].querySelector('.stat-value').textContent;
-                    currentStats[1].querySelector('.stat-value').textContent = statCards[1].querySelector('.stat-value').textContent;
-                    currentStats[2].querySelector('.stat-value').textContent = statCards[2].querySelector('.stat-value').textContent;
-                }
-
                 // 更新存储列表
                 const newList = doc.querySelector('.list');
                 const currentList = document.querySelector('.grid-card.section-full .list');
@@ -2278,82 +2269,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // ========================================
-    // 统计面板（F8）— 按需加载
+    // 统计面板 — 已迁移至 ?api=stats，可被未来管理后台复用
+    // （首页 stats-bar 卡片于 v1.0.4 移除，纯展示性信息未达预期效果）
     // ========================================
-    window.loadStatsPanel = function() {
-        var statsBar = document.querySelector('.stats-bar');
-        if (!statsBar || statsBar._panelLoaded) return;
-        statsBar._panelLoaded = true;
-
-        statsBar.style.cursor = 'pointer';
-        statsBar.title = '点击查看详细统计';
-
-        statsBar.addEventListener('click', function() {
-            var panel = document.querySelector('.stats-panel');
-            if (panel) {
-                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-                return;
-            }
-
-            // 创建统计面板
-            panel = document.createElement('div');
-            panel.className = 'stats-panel';
-            panel.innerHTML = '<h3>存储统计</h3>' +
-                '<div class="stats-charts">' +
-                '<div class="stats-chart-container"><h4>类型分布</h4><canvas id="pieChart" width="350" height="250"></canvas></div>' +
-                '<div class="stats-chart-container"><h4>近7日上传</h4><canvas id="barChart" width="350" height="250"></canvas></div>' +
-                '</div>';
-
-            statsBar.parentNode.insertBefore(panel, statsBar.nextSibling);
-
-            // 加载统计数据
-            fetch(window.location.pathname + '?api=stats', {
-                headers: { 'Authorization': 'Bearer ' + (window._apiToken || '') }
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (!data.success) return;
-                var stats = data.stats;
-
-                // 饼图
-                if (typeof FileShareCharts !== 'undefined') {
-                    var pieCanvas = document.getElementById('pieChart');
-                    if (pieCanvas) {
-                        var pieData = [];
-                        var cats = stats.category_sizes || {};
-                        for (var cat in cats) {
-                            if (cats[cat] > 0) {
-                                pieData.push({
-                                    label: FileShareCharts.categoryLabels[cat] || cat,
-                                    value: cats[cat],
-                                    color: FileShareCharts.categoryColors[cat] || '#9CA3AF'
-                                });
-                            }
-                        }
-                        // 添加文本大小
-                        var textStmt = stats.total_size - Object.values(cats).reduce(function(a, b) { return a + b; }, 0);
-                        if (textStmt > 0) {
-                            pieData.push({ label: '文本', value: textStmt, color: '#EC4899' });
-                        }
-                        FileShareCharts.drawPieChart(pieCanvas, pieData);
-                    }
-
-                    // 柱状图
-                    var barCanvas = document.getElementById('barChart');
-                    if (barCanvas && stats.daily_uploads) {
-                        var barData = stats.daily_uploads.map(function(d) {
-                            return { label: d.day.substring(5), value: d.cnt };
-                        });
-                        FileShareCharts.drawBarChart(barCanvas, barData);
-                    }
-                }
-            })
-            .catch(function(err) {
-                console.error('加载统计失败:', err);
-            });
-        });
-    };
-
-    loadStatsPanel();
 
 });

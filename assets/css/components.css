@@ -1141,36 +1141,9 @@ input[type="file"]::file-selector-button:hover {
 }
 
 /* ========================================
-   统计面板（F8）
+   统计面板（F8）— 端点 ?api=stats 已保留，未来管理后台可复用样式
+   （首页 stats-bar 卡片于 v1.0.4 移除）
    ======================================== */
-.stats-panel {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    padding: 24px;
-    margin-bottom: 24px;
-}
-
-.stats-panel h3 {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 16px;
-}
-
-.stats-charts {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-}
-
-.stats-chart-container {
-    text-align: center;
-}
-
-.stats-chart-container canvas {
-    max-width: 100%;
-}
 
 .disk-usage-bar {
     margin-bottom: 16px;
@@ -1237,10 +1210,6 @@ input[type="file"]::file-selector-button:hover {
 
     .batch-actions-bar {
         flex-wrap: wrap;
-    }
-
-    .stats-charts {
-        grid-template-columns: 1fr;
     }
 }
 

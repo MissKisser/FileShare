@@ -151,21 +151,6 @@
             <p>轻量级文件上传与文本存储系统</p>
         </header>
 
-        <!-- 统计条 -->
-        <div class="stats-bar">
-            <div class="stat-card">
-                <div class="stat-label">文件存储</div>
-                <div class="stat-value"><?php echo $stats['file_count']; ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">文本片段</div>
-                <div class="stat-value"><?php echo $stats['text_count']; ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">总项目数</div>
-                <div class="stat-value"><?php echo $stats['total_items']; ?></div>
-            </div>
-        </div>
 
         <?php if (isset($message)): ?>
             <div class="message">

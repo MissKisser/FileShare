@@ -44,7 +44,4 @@ unset($_SESSION['message']);
 // 获取最近上传日志
 $uploadLogs = getUploadLogs(10);
 
-// 获取存储统计
-$stats = getStorageStats();
-
 require_once __DIR__ . '/templates/main.php';
