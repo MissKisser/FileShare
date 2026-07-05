@@ -41,12 +41,24 @@ function saveData($data) {
 
 /**
  * 清理过期项目
- * 
+ *
+ * I3 性能优化：每次首页加载都跑全表 SELECT + 可能 DELETE + unlink 是性能反模式。
+ * 现在加节流：距上次清理 < 5 分钟则跳过（settings.last_clean_expired 时间戳）。
+ * 副作用：过期项最长可能多存 5 分钟才被清理，业务上可接受。
+ *
  * @param array &$data 兼容参数，SQLite 模式下不使用
  */
 function cleanExpired(&$data = null) {
     $db = getDB();
     $now = time();
+
+    // 节流：5 分钟内已清理过则跳过
+    $lastClean = (int)getSetting('last_clean_expired', '0');
+    if ($lastClean > 0 && ($now - $lastClean) < 300) {
+        return;
+    }
+    // 立即更新时间戳，避免并发请求重复清理
+    setSetting('last_clean_expired', (string)$now);
 
     // 获取即将过期的文件项目（需要删除物理文件）
     $stmt = $db->prepare('SELECT id, path, type, file_hash FROM items WHERE expire > 0 AND expire < ?');
@@ -87,6 +99,17 @@ function cleanExpired(&$data = null) {
     $delStmt->execute([$now]);
 
     $db->commit();
+
+    // 失效 stats 缓存（items 表已变化）
+    invalidateStorageStatsCache();
+}
+
+/**
+ * 失效 getStorageStats 结果缓存
+ * 触发时机：items 表内容发生变化（删除、过期清理、上传新文件后由调用方主动触发）
+ */
+function invalidateStorageStatsCache() {
+    setSetting('storage_stats_cache_ts', '0');
 }
 
 /**
@@ -219,6 +242,11 @@ function deleteItemsAtomically(array $ids) {
             $errors[$id] = $e->getMessage();
         }
         error_log('deleteItemsAtomically failed: ' . $e->getMessage());
+    }
+
+    // 失效 stats 缓存（items 表已变化，仅在确实有删除时）
+    if (!empty($deleted)) {
+        invalidateStorageStatsCache();
     }
 
     return ['deleted' => $deleted, 'errors' => $errors, 'deleted_count' => count($deleted)];
@@ -454,11 +482,29 @@ function maskIP($ip) {
 
 /**
  * 获取存储统计信息
- * 
+ *
+ * I3 性能优化：
+ *   1. 6 次分类 SUM 合并为 1 次 SQL（CASE WHEN 分列 SUM）
+ *   2. 结果缓存到 settings.storage_stats_cache (JSON)，5 分钟过期
+ *
  * @return array
  */
 function getStorageStats() {
     $db = getDB();
+
+    // 缓存检查：5 分钟内的结果直接复用
+    $cacheKey = 'storage_stats_cache';
+    $cacheTsKey = 'storage_stats_cache_ts';
+    $cachedTs = (int)getSetting($cacheTsKey, '0');
+    if ($cachedTs > 0 && (time() - $cachedTs) < 300) {
+        $cached = getSetting($cacheKey, '');
+        if (!empty($cached)) {
+            $decoded = json_decode($cached, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+    }
 
     $stats = [
         'total_items' => 0,
@@ -469,36 +515,49 @@ function getStorageStats() {
         'daily_uploads' => [],
     ];
 
-    // 基本计数
-    $stats['total_items'] = $db->query('SELECT COUNT(*) as cnt FROM items')->fetch()['cnt'];
-    $stats['file_count'] = $db->query("SELECT COUNT(*) as cnt FROM items WHERE type = 'file'")->fetch()['cnt'];
-    $stats['text_count'] = $db->query("SELECT COUNT(*) as cnt FROM items WHERE type = 'text'")->fetch()['cnt'];
+    // 基本计数 + 文件总大小（合并到一条语句）
+    $row = $db->query("
+        SELECT
+            (SELECT COUNT(*) FROM items) AS total_items,
+            (SELECT COUNT(*) FROM items WHERE type = 'file') AS file_count,
+            (SELECT COUNT(*) FROM items WHERE type = 'text') AS text_count,
+            (SELECT COALESCE(SUM(size), 0) FROM items WHERE type = 'file') AS total_size
+    ")->fetch();
+    $stats['total_items'] = (int)$row['total_items'];
+    $stats['file_count'] = (int)$row['file_count'];
+    $stats['text_count'] = (int)$row['text_count'];
+    $stats['total_size'] = (int)$row['total_size'];
 
-    // 文件总大小
-    $sizeResult = $db->query("SELECT COALESCE(SUM(size), 0) as total FROM items WHERE type = 'file'")->fetch();
-    $stats['total_size'] = $sizeResult['total'];
-
-    // 按类型分类大小
+    // 按类型分类大小 — 一次 SQL 用 CASE WHEN 分列 SUM
+    // 每个 extension 构造一个 LIKE，归属到对应分类的 SUM
     $categories = ['image', 'video', 'audio', 'doc', 'code', 'archive'];
+    $caseParts = [];
+    $params = [];
     foreach ($categories as $cat) {
         $extensions = getCategoryExtensions($cat);
-        $size = 0;
-        if (!empty($extensions)) {
-            $placeholders = implode(',', array_fill(0, count($extensions), '?'));
-            $conditions = [];
-            foreach ($extensions as $ext) {
-                $conditions[] = "name LIKE ?";
-            }
-            $likeConditions = implode(' OR ', $conditions);
-            $stmt = $db->prepare("SELECT COALESCE(SUM(size), 0) as total FROM items WHERE type = 'file' AND ({$likeConditions})");
-            $params = [];
-            foreach ($extensions as $ext) {
-                $params[] = '%.' . $ext;
-            }
-            $stmt->execute($params);
-            $size = $stmt->fetch()['total'];
+        if (empty($extensions)) {
+            $caseParts[$cat] = '0';
+            continue;
         }
-        $stats['category_sizes'][$cat] = $size;
+        // 同一分类的所有扩展名 OR 起来，匹配则累加 size
+        $conds = [];
+        foreach ($extensions as $ext) {
+            $conds[] = 'name LIKE ?';
+            $params[] = '%.' . $ext;
+        }
+        $caseParts[$cat] = implode(' OR ', $conds);
+    }
+    // 构造 SUM(CASE WHEN <cat-conds> THEN size ELSE 0 END) AS <cat>
+    $sumExprs = [];
+    foreach ($categories as $cat) {
+        $sumExprs[] = "SUM(CASE WHEN ({$caseParts[$cat]}) THEN size ELSE 0 END) AS {$cat}";
+    }
+    $sql = "SELECT " . implode(', ', $sumExprs) . " FROM items WHERE type = 'file'";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $catRow = $stmt->fetch();
+    foreach ($categories as $cat) {
+        $stats['category_sizes'][$cat] = (int)($catRow[$cat] ?? 0);
     }
 
     // 最近 7 天每日上传量
@@ -512,6 +571,10 @@ function getStorageStats() {
     ');
     $stmt->execute([$sevenDaysAgo]);
     $stats['daily_uploads'] = $stmt->fetchAll();
+
+    // 写缓存
+    setSetting($cacheKey, json_encode($stats, JSON_UNESCAPED_UNICODE));
+    setSetting($cacheTsKey, (string)time());
 
     return $stats;
 }
