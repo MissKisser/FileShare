@@ -10,8 +10,9 @@
  *  happy - 文本保存路径：创建后 GET ?s=&manage= → share 页含 "删除我的上传" 按钮
  *  happy - 文本保存路径：POST owner_delete → 200 + 行消失 + 上传日志记录 owner_delete
  *  happy - 文件上传路径：上传响应含 manage_url，POST owner_delete → 行 + 物理文件消失
- *  session - share 页：第一次带 manage 验证后，去掉 manage 重访 → 仍含按钮
- *  session - 删完后 session 中的 owner_token_ 应被清空
+ *  session - share 页：第一次带 manage 验证后，去掉 manage 重访 → C4 后不再渲染按钮，
+ *            明文 token 不出现在 HTML（要求持续带 ?manage= 才能删）
+ *  session - 删完后 session 中的 owner_confirmed_ 应被清空
  *  csrf  - owner_delete 不需要 CSRF（验证：故意不发 csrf_token 仍能删）
  *  admin - 老 items（owner_token_hash=NULL）admin 路径依然能删（兼容）
  *  幂等  - migration 跑两次不报错（PRAGMA table_info 列出 owner_token_hash）
@@ -384,20 +385,24 @@ assert_true(strpos($shareHtml6, 'share-owner-section') === false, "share page wi
 @unlink($jar6);
 
 // =====================================================
-// 7. share 页 session 复用：第一次带 manage 验证后去掉 manage 重访 → 仍含按钮
+// 7. share 页 session 复用：第一次带 manage 验证后去掉 manage 重访
+//    C4 修复后语义变化：去掉 manage → 仅识别身份（提示），不再渲染删除按钮，
+//    且明文 token 绝不出现在 HTML（防止 session 文件泄露降级 token 安全等级）。
+//    删除操作要求持续带 ?manage=<token>。
 // =====================================================
-fwrite(STDERR, "\n>> [share-page] session reuse: re-visit without manage after first validation\n");
+fwrite(STDERR, "\n>> [share-page] session reuse: re-visit without manage (C4 — no button, no token in HTML)\n");
 $victim7 = insertProbeWithOwner($dbh, 'page_session');
 $jar7 = 'D:/temp/cp-od-session-' . getmypid() . '.txt';
 @unlink($jar7);
-// 第一次带 manage
-http_get_jar($base, $jar7, '/?s=' . urlencode($victim7['code']) . '&manage=' . $victim7['token']);
-// 第二次不带 manage（同一 session）
+// 第一次带 manage → HTML 应含按钮
+$shareHtml7a = http_get_jar($base, $jar7, '/?s=' . urlencode($victim7['code']) . '&manage=' . $victim7['token']);
+assert_true(strpos($shareHtml7a, 'id="ownerDeleteBtn"') !== false, "first visit with manage shows ownerDeleteBtn");
+// 第二次不带 manage（同一 session）→ 应识别身份但不渲染按钮，且 token 不在 HTML
 $shareHtml7 = http_get_jar($base, $jar7, '/?s=' . urlencode($victim7['code']));
-assert_true(strpos($shareHtml7, 'id="ownerDeleteBtn"') !== false, "session reuse: 2nd visit without manage still shows ownerDeleteBtn");
-assert_true(strpos($shareHtml7, '删除我的上传') !== false, "session reuse: 2nd visit still shows '删除我的上传'");
-// 也确认 token 没硬编码泄露在 HTML
-assert_true(strpos($shareHtml7, $victim7['token']) !== false, "session reuse: token is inlined for the POST call");
+assert_true(strpos($shareHtml7, 'id="ownerDeleteBtn"') === false, "C4: 2nd visit without manage does NOT show ownerDeleteBtn");
+assert_true(strpos($shareHtml7, '已识别为上传者') !== false, "C4: 2nd visit shows owner-identified hint");
+// 关键安全断言：明文 token 绝不出现在响应 HTML
+assert_true(strpos($shareHtml7, $victim7['token']) === false, "C4: plaintext owner token NEVER appears in HTML without ?manage=");
 @unlink($jar7);
 
 // =====================================================

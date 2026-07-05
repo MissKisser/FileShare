@@ -860,9 +860,11 @@ function handleSharePage() {
     }
 
     // Owner token 验证（独立于密码，URL 带 ?manage=<token> 时触发）
-    // 设计：
-    //   - URL ?manage=<plaintext> 验证成功后：写 boolean 标记 + 明文 token 到 session
-    //   - 后续本会话访问不带 ?manage= 的 ?s=<code> 仍能展示管理入口（且能 POST 删）
+    // 设计（C4 修复后）：
+    //   - URL ?manage=<plaintext> 验证成功后：仅写 boolean 标记到 session
+    //   - 明文 token **绝不**入 session（session 文件泄露会丢凭证，降级 token 安全等级）
+    //   - 后续本会话访问不带 ?manage= 的 ?s=<code> 仍能识别 owner（展示提示），
+    //     但 POST 删除要求重新带 ?manage=<token>（manageToken 仅当前请求有效）
     //   - 验证失败时静默不报错（防 enumeration）
     $isOwner = false;
     $manageToken = '';
@@ -874,15 +876,13 @@ function handleSharePage() {
         $chk->execute([$code, $tokenHash]);
         if ($chk->fetch()) {
             $isOwner = true;
-            $manageToken = $manageTokenFromUrl;
-            $_SESSION['owner_confirmed_' . $code] = true;
-            // 同时存明文 token 到 session（用于后续无 ?manage= 的访问也能 POST 删）
-            $_SESSION['owner_token_' . $code] = $manageTokenFromUrl;
+            $manageToken = $manageTokenFromUrl; // 仅当前请求局部变量，不写 session
+            $_SESSION['owner_confirmed_' . $code] = true; // 仅 boolean 标记
         }
-    } elseif (!empty($_SESSION['owner_confirmed_' . $code]) && !empty($_SESSION['owner_token_' . $code])) {
-        // 已在本会话验过 owner；从 session 恢复明文 token
+    } elseif (!empty($_SESSION['owner_confirmed_' . $code])) {
+        // 已在本会话验过 owner；识别身份展示提示，但 manageToken 为空
+        // （删除按钮要求 URL 持续带 ?manage= 才会渲染）
         $isOwner = true;
-        $manageToken = $_SESSION['owner_token_' . $code];
     }
 
     define('SHARE_PAGE', true);

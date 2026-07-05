@@ -594,7 +594,10 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                         <!--
                             Owner 管理入口（仅本人可见）
                             来源：URL ?manage=<token> 验证成功 / 本会话已验过
-                            删除按钮需 manage_token 存在（保证后续 POST 能通过）
+                            删除按钮需 manage_token 存在（保证后续 POST 能通过）。
+                            C4 修复：明文 token 不再存 session，因此去掉 URL 里的 ?manage=
+                            后只能识别身份（展示提示），不再渲染删除按钮 —— 删除请使用
+                            原始管理链接 ?s=<code>&manage=<token>。
                         -->
                         <div class="share-sidebar-section share-owner-section">
                             <div class="share-sidebar-label">管理操作</div>
@@ -602,7 +605,7 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                                 <button type="button" class="btn btn-danger btn-sm btn-block" id="ownerDeleteBtn">删除我的上传</button>
                                 <p class="share-owner-hint">这是上传者本人才能看到的操作</p>
                             <?php else: ?>
-                                <p class="share-owner-hint">已识别为上传者；如需删除，请使用原始管理链接</p>
+                                <p class="share-owner-hint">已识别为上传者；如需删除，请使用原始管理链接（带 ?manage= 参数）</p>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
