@@ -64,7 +64,9 @@ function initDB($db) {
             time            INTEGER NOT NULL,
             expire          INTEGER NOT NULL DEFAULT 0,
             duration        INTEGER NOT NULL DEFAULT 600,
-            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            -- M9: 原 created_at DATETIME DEFAULT CURRENT_TIMESTAMP 列从未被读取，已移除。
+            -- 老库通过增量迁移保留该列（SQLite 不支持 ALTER DROP COLUMN），新库不再声明。
+            -- 业务时间字段统一用 time (INTEGER Unix 时间戳)。
             -- owner 凭证：存 sha256(owner_token) 而不是明文。owner_token 是创建者收到的
             -- 管理链接 ?s=<code>&manage=<token> 里的明文 token，DB 泄露不丢凭证。
             -- 老数据此列为 NULL，admin 删除依然工作，owner 端只能删了重建。
