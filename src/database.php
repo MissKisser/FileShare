@@ -133,24 +133,26 @@ function initDB($db) {
         );
     ");
 
-    // 插入默认设置
+    // 插入默认设置（仅基础 3 列 — 元数据 label/description/category/control_type/sort_order
+    // 由 runIncrementalMigrations() 通过 ALTER TABLE ADD COLUMN + UPDATE 统一回填，
+    // 避免"INSERT 引用了尚不存在的列"导致全新部署启动崩溃。）
     $now = time();
-    $stmt = $db->prepare('INSERT INTO settings (key, value, updated_at, label, description, category, control_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     $defaults = [
-        ['site_title', '文件上传与文本存储系统', $now, '网站标题', '显示在浏览器标签和页面标题', 'site', 'text', 10],
-        ['site_subtitle', '上传文件或文本，生成分享链接', $now, '网站副标题', '显示在主页大标题下方', 'site', 'text', 20],
-        ['default_duration', '600', $now, '默认有效期（秒）', '上传项的默认过期时间，0 表示永不过期', 'upload', 'number', 30],
-        ['max_file_size_normal', (string)(200 * 1024 * 1024), $now, '普通上传大小上限', '字节数，可使用 1MB/200MB/2GB 等单位', 'upload', 'text', 40],
-        ['max_file_size_large', (string)(2048 * 1024 * 1024), $now, '分块上传大小上限', '超出此大小将走分块上传流程', 'upload', 'text', 50],
-        ['ip_blacklist', '', $now, 'IP 黑名单', '每行一个 IP 或 CIDR，留空表示不限制', 'security', 'textarea', 60],
-        ['admin_session_lifetime', '7200', $now, '后台会话有效期（秒）', '管理员登录态保持时间', 'security', 'number', 70],
-        ['api_enabled', '1', $now, '启用 API', '关闭后所有 /api/* 请求返回 403', 'api', 'switch', 80],
+        ['site_title', '文件上传与文本存储系统'],
+        ['site_subtitle', '上传文件或文本，生成分享链接'],
+        ['default_duration', '600'],
+        ['max_file_size_normal', (string)(200 * 1024 * 1024)],
+        ['max_file_size_large', (string)(2048 * 1024 * 1024)],
+        ['ip_blacklist', ''],
+        ['admin_session_lifetime', '7200'],
+        ['api_enabled', '1'],
     ];
+    $stmt = $db->prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
     foreach ($defaults as $row) {
-        $stmt->execute($row);
+        $stmt->execute([$row[0], $row[1], $now]);
     }
 
-    // 运行增量迁移（首次建表后也需补齐新字段）
+    // 运行增量迁移（首次建表后补齐新字段 + 元数据回填）
     runIncrementalMigrations($db);
 }
 
