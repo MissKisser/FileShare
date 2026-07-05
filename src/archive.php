@@ -217,7 +217,9 @@ function archiveListTar($path) {
             );
         }
     } catch (Exception $e) {
-        $entries[] = array('name' => '(无法读取: ' . $e->getMessage() . ')', 'size' => 0, 'is_dir' => false);
+        // I8 加固：异常 message 含 PharData 内部细节，对用户模糊化
+        error_log('archiveListTar failed: ' . $e->getMessage());
+        $entries[] = array('name' => '(无法读取压缩包内容)', 'size' => 0, 'is_dir' => false);
     }
     return $entries;
 }
@@ -270,7 +272,9 @@ function archiveReadTar($path, $innerPath) {
         $result['content'] = $content;
         $result['mime'] = guessTextMime($innerExt);
     } catch (Exception $e) {
-        $result['error'] = '读取失败: ' . $e->getMessage();
+        // I8 加固：异常 message 含 phar:// 路径细节，对用户模糊化
+        error_log('archiveReadTar failed: ' . $e->getMessage());
+        $result['error'] = '读取压缩包内容失败';
     }
 
     return $result;

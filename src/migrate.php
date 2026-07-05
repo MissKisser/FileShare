@@ -89,7 +89,9 @@ function runMigration() {
                         ]);
                         $result['items_migrated']++;
                     } catch (Exception $e) {
-                        $result['errors'][] = "第 {$i} 条记录迁移失败: " . $e->getMessage();
+                        // I8 加固：PDOException message 含完整 SQL，记录到 error_log 供运维排查
+                        error_log("migrate data.json row {$i} failed: " . $e->getMessage());
+                        $result['errors'][] = "第 {$i} 条记录迁移失败（详见服务器错误日志）";
                     }
                 }
 
@@ -135,7 +137,9 @@ function runMigration() {
                         ]);
                         $result['logs_migrated']++;
                     } catch (Exception $e) {
-                        $result['errors'][] = "日志第 {$i} 条迁移失败: " . $e->getMessage();
+                        // I8 加固：PDOException message 含完整 SQL，记录到 error_log
+                        error_log("migrate upload_log.json row {$i} failed: " . $e->getMessage());
+                        $result['errors'][] = "日志第 {$i} 条迁移失败（详见服务器错误日志）";
                     }
                 }
 
@@ -160,9 +164,11 @@ function runMigration() {
         }
 
     } catch (Exception $e) {
+        // I8 加固：PDOException message 含完整 SQL + 文件路径，对外模糊化
+        error_log('migrateJsonToSqlite fatal: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
         $result['success'] = false;
-        $result['message'] = '迁移异常: ' . $e->getMessage();
-        $result['errors'][] = $e->getMessage();
+        $result['message'] = '迁移异常（详见服务器错误日志）';
+        $result['errors'][] = '内部错误';
     }
 
     return $result;

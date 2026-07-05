@@ -546,6 +546,9 @@ function handleFileUpload() {
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
 
     } catch (Exception $e) {
+        // I8 加固：PDOException 等异常 message 常含完整 SQL + 文件路径，
+        // 直接回显会泄露 DB schema 给 SQL 注入侦察。改为记 error_log + 模糊提示。
+        error_log('handleFileUpload failed: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
         if (ob_get_level()) {
             ob_flush();
         }
@@ -553,7 +556,7 @@ function handleFileUpload() {
 
         echo json_encode([
             'success' => false,
-            'message' => '上传异常：' . $e->getMessage()
+            'message' => '服务器内部错误，请稍后重试'
         ], JSON_UNESCAPED_UNICODE);
     }
 
