@@ -93,13 +93,13 @@ function validateApiToken($requiredPermission = 'read') {
         $token = $matches[1];
     }
 
-    // 也支持查询参数
-    if (empty($token)) {
-        $token = $_GET['token'] ?? '';
-    }
+    // I5 安全加固：不再支持 $_GET['token'] fallback —— URL 中的 token 会被
+    // 记入 access log、Referer 头、浏览器历史，造成凭证泄露。所有客户端
+    // 必须使用 Authorization: Bearer <token> Header。
+    // 兼容性影响：原用 ?token= 调用的客户端需改为 Header 方式。
 
     if (empty($token)) {
-        apiError('缺少认证 Token', 401);
+        apiError('缺少认证 Token（请使用 Authorization: Bearer <token> Header）', 401);
     }
 
     $tokenHash = hash('sha256', $token);
