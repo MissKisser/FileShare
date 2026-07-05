@@ -46,3 +46,4 @@ storage/fileshare.db
 storage/data.json.bak
 storage/upload_log.json.bak
 uploads/!*
+phpinfo.php
