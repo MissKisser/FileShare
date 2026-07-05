@@ -68,23 +68,37 @@ index.php                  # 应用入口
 
 ## 数据库结构
 
-- **items** - 项目主表（文件+文本），含 share_code、file_hash、password、download_count
-- **upload_logs** - 上传日志
+- **items** - 项目主表（文件+文本），含 share_code、file_hash、password、download_count、owner_token_hash（owner 删除凭证 sha256 哈希）
+- **upload_logs** - 上传日志（含 chunk 上传 session_id、chunk_count、received_chunks 位图、status）
 - **download_logs** - 下载日志
 - **api_tokens** - API Token（存储 SHA-256 哈希）
 - **admin_sessions** - 管理员会话
-- **settings** - 系统设置（key-value）
+- **settings** - 系统设置（key-value，含元数据列 label/description/category/control_type/sort_order 用于后台分组渲染）
 
 ## 关键逻辑
 
-- **真实IP获取**: `HTTP_CLIENT_IP` → `HTTP_X_FORWARDED_FOR` → `HTTP_X_REAL_IP` → `REMOTE_ADDR`
+- **真实IP获取**: 默认信任 REMOTE_ADDR；仅当配置 `TRUSTED_PROXIES` CIDR 时才读 X-Forwarded-For / X-Real-IP / Client-IP（防 IP 伪造）
 - **分享码**: `bin2hex(random_bytes(4))` 生成 8 位十六进制码，碰撞重试
-- **文件去重**: SHA-256 哈希检测重复，引用计数安全删除
+- **owner token**: `bin2hex(random_bytes(32))` 64 字符 256 位熵，DB 仅存 sha256(token)，明文仅返回给创建者一次（manage_url）
+- **文件去重**: SHA-256 哈希检测重复，引用计数安全删除（事务化）
 - **密码保护**: `password_hash()` bcrypt 加密，`password_verify()` 校验
-- **API 认证**: Bearer Token（1小时）+ Refresh Token（7天），Token 存储为 SHA-256 哈希
+- **API 认证**: Bearer Token（1小时）+ Refresh Token（7天），Token 存储为 SHA-256 哈希，**仅支持 Authorization Header**（不再支持 ?token=）
 - **管理后台**: Session 认证，`hash_equals()` 时序安全比较
-- **过期清理**: `expire=0` 表示永久保存，非零值表示 Unix 时间戳
-- **视频流**: HTTP Range 请求支持，断点续传
+- **过期清理**: `expire=0` 表示永久保存，非零值表示 Unix 时间戳；5 分钟节流避免热路径阻塞
+- **视频流**: HTTP Range 请求支持（单 range 严格解析 + 416 越界保护），断点续传
+
+## 安全机制（速率限制）
+
+为防止密码爆破，公开认证端点均加速率限制（session 维度计数）：
+
+| 端点 | 限制 | key |
+|------|------|-----|
+| 分享密码验证 `?action=verify_share_password` | 10 次/60 秒 | `share_pwd_<sha1(code+ip)>` |
+| 管理员登录 `/admin/login` | 10 次/60 秒 | `admin_login_<ip>` |
+| API Token 申请 `?api=auth/token` | 10 次/60 秒 | `api_auth_<ip>` |
+| 大文件密码验证 `?action=verify_large_file_password` | 5 次/60 秒 | `large_file_password_attempts` |
+
+失败时计数，成功不计数。超限返回 429。
 
 ## 配置说明
 
