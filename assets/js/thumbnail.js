@@ -31,11 +31,26 @@
         item.innerHTML = '<span class="thumb-placeholder" title="' + (reason || '无缩略图') + '">' + icon + '</span>';
     }
 
+    // I2 安全加固：HTML 属性转义，防止 thumbPath 注入引号/尖括号导致 XSS。
+    // 虽然当前 thumbPath 来自后端 basename() 受控，但任何字符串拼接到 HTML 属性
+    // 都必须转义，避免后端逻辑变更时引入 XSS 面。
+    function escapeAttr(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function renderThumbnail(item, thumbPath) {
         // 改走 ?thumb=ID 鉴权路由，避免缩略图通过 /uploads/ 直接静态访问泄露
         // thumbPath 仅作为缓存键使用；显示时以 itemId 拉取
-        item.innerHTML = '<img src="?thumb=' + item.dataset.thumbnailItem +
-            '" alt="" loading="lazy" class="thumb-image" data-thumb-path="' + thumbPath + '" />';
+        // I2：所有动态值经过 escapeAttr 转义后再拼接到 HTML 属性
+        var itemId = escapeAttr(item.dataset.thumbnailItem);
+        var safeThumbPath = escapeAttr(thumbPath);
+        item.innerHTML = '<img src="?thumb=' + itemId +
+            '" alt="" loading="lazy" class="thumb-image" data-thumb-path="' + safeThumbPath + '" />';
     }
 
     function loadThumbnail(item) {
