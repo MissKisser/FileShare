@@ -527,8 +527,12 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                         <div class="share-actions">
                             <a href="?download=<?php echo $item['id']; ?>" class="btn btn-primary">下载文件</a>
                             <?php
+                                // C5 安全加固：SVG 不再列入"在线预览"按钮 —— ?preview=<svg>
+                                // 会触发 attachment 下载（防 SVG 内嵌脚本 XSS），UX 上等同于"下载文件"，
+                                // 因此对 SVG 隐藏预览按钮，避免用户困惑。SVG 仍可通过内联 <img>
+                                // 区域显示（img 标签本身不执行 SVG 脚本，安全）。
                                 $previewableExts = array_merge(
-                                    array('jpg','jpeg','png','gif','webp','bmp','svg','ico'),
+                                    array('jpg','jpeg','png','gif','webp','bmp','ico'),
                                     array('mp4','webm','ogv','ogg'),
                                     array('mp3','wav','aac','flac','m4a','opus'),
                                     array('pdf','md','markdown')

@@ -982,6 +982,19 @@ function handlePreview() {
 
     if (in_array($ext, $imageExts)) {
         // 图片：直接输出
+        // C5 安全加固：SVG 可内嵌 <script> / onload= 等脚本，inline 输出会导致
+        // 同源 XSS（浏览器在 ?preview=<svg> 页面执行 SVG 中的 JS）。
+        // 对 SVG 强制 attachment 下载 + 严格 CSP，杜绝脚本执行；
+        // 其他图片格式（jpg/png/gif/webp/bmp/ico）保持 inline 预览。
+        if ($ext === 'svg') {
+            header('Content-Type: image/svg+xml');
+            header('Content-Disposition: attachment; filename="' . htmlspecialchars(basename($item['name']), ENT_QUOTES, 'UTF-8') . '"');
+            header("Content-Security-Policy: default-src 'none'; sandbox");
+            header('X-Content-Type-Options: nosniff');
+            header('Content-Length: ' . filesize($item['path']));
+            readfile($item['path']);
+            exit;
+        }
         header('Content-Type: ' . $mimeType);
         header('Content-Length: ' . filesize($item['path']));
         readfile($item['path']);
