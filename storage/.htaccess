@@ -1,1 +1,12 @@
-Deny from all
+# 拒绝所有直接访问 storage/ 目录（M3 升级 Apache 2.4 双语法）
+# 本目录存放 SQLite 数据库（fileshare.db）+ JSON 备份，绝不能被 web 暴露
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 兼容（phpStudy 旧版等）
+    Order deny,allow
+    Deny from all
+</IfModule>

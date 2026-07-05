@@ -1,0 +1,41 @@
+# uploads/ 目录安全加固（M2）
+# 本目录存放用户上传的文件，必须禁止任何 PHP 脚本执行
+# 防止攻击者上传 shell.php / .phtml / 双扩展名等绕过白名单的攻击
+
+# Apache 2.4+ 语法
+<IfModule mod_authz_core.c>
+    # 仅允许直接访问静态文件，禁止目录列表
+    Options -ExecCGI -Indexes
+    # 禁止所有 PHP 系列扩展名的脚本被解析执行
+    <FilesMatch "\.(php|phtml|php[3-7]|pht|phar|cgi|pl|py|sh)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+# Apache 2.2 兼容语法（phpStudy 旧版等）
+<IfModule !mod_authz_core.c>
+    Options -ExecCGI -Indexes
+    <FilesMatch "\.(php|phtml|php[3-7]|pht|phar|cgi|pl|py|sh)$">
+        Order deny,allow
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# 关闭 PHP 引擎（mod_php 场景双重保险）
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# 强制把所有响应当作附件下载（避免浏览器 inline 渲染 SVG/HTML 等）
+# 注：本应用通过 ?preview= / ?thumb= / ?download= 路由受控输出，
+# 直接访问 /uploads/ 路径的请求应一律拒绝或强制下载。
+<IfModule mod_headers.c>
+    Header set Content-Disposition "attachment"
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>
