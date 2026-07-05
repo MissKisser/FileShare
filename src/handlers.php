@@ -1196,36 +1196,91 @@ function handlePreview() {
 
 /**
  * 流式输出文件（支持 Range 请求，用于视频/音频）
+ *
+ * I1 加固：严格解析 Range 头，处理：
+ *   - 多 range（bytes=0-100,200-300）→ 忽略 Range，返回 200 全量
+ *   - 非法 range / 语法错 → 忽略 Range，返回 200 全量
+ *   - 越界（start >= size）→ 416 Requested Range Not Satisfiable
+ *   - 开放右端（bytes=100-）→ end 默认 size-1
+ *   - end 超过 size-1 → 夹紧到 size-1
+ *   - fopen/fseek 失败保护
  */
 function streamFile($path, $mimeType) {
+    if (!is_file($path)) {
+        http_response_code(404);
+        echo '文件不存在';
+        exit;
+    }
     $size = filesize($path);
-    $start = 0;
-    $end = $size - 1;
+    if ($size <= 0) {
+        http_response_code(500);
+        echo '文件为空';
+        exit;
+    }
 
     header('Content-Type: ' . $mimeType);
     header('Accept-Ranges: bytes');
 
+    $start = 0;
+    $end = $size - 1;
+    $isPartial = false;
+
     if (isset($_SERVER['HTTP_RANGE'])) {
-        $range = $_SERVER['HTTP_RANGE'];
-        $range = str_replace('bytes=', '', $range);
-        list($start, $end) = explode('-', $range);
-        $start = intval($start);
-        $end = empty($end) ? $size - 1 : intval($end);
-        header('HTTP/1.1 206 Partial Content');
+        $rangeHeader = $_SERVER['HTTP_RANGE'];
+        // 仅接受单 range：bytes=<start>-<end>(可选) 形式
+        // 多 range（含逗号）和非法语法一律忽略，按 200 全量返回
+        if (preg_match('#^bytes=(\d+)-(\d*)$#', $rangeHeader, $m)) {
+            $reqStart = (int)$m[1];
+            $reqEnd = ($m[2] !== '') ? (int)$m[2] : $size - 1;
+
+            if ($reqStart >= $size) {
+                // 越界：返回 416 + Content-Range: bytes */<size>
+                http_response_code(416);
+                header('Content-Range: bytes */' . $size);
+                exit;
+            }
+            if ($reqEnd >= $size) {
+                $reqEnd = $size - 1; // 夹紧
+            }
+            if ($reqStart > $reqEnd) {
+                // start > end：非法，忽略 Range
+                // 走 200 全量
+            } else {
+                $start = $reqStart;
+                $end = $reqEnd;
+                $isPartial = true;
+            }
+        }
+        // 其他形式（多 range、bytes=-500 后缀形式等）→ 忽略，200 全量
+    }
+
+    if ($isPartial) {
+        http_response_code(206);
         header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
     }
 
     header('Content-Length: ' . ($end - $start + 1));
     header('Content-Disposition: inline');
 
-    $fp = fopen($path, 'rb');
-    fseek($fp, $start);
+    $fp = @fopen($path, 'rb');
+    if (!$fp) {
+        http_response_code(500);
+        echo '无法打开文件';
+        exit;
+    }
+    if ($start > 0) {
+        fseek($fp, $start);
+    }
     $remaining = $end - $start + 1;
     $bufferSize = 8192;
     while ($remaining > 0 && !feof($fp)) {
         $read = min($bufferSize, $remaining);
-        echo fread($fp, $read);
-        $remaining -= $read;
+        $chunk = fread($fp, $read);
+        if ($chunk === false) {
+            break; // 读错误，停止输出已读部分
+        }
+        echo $chunk;
+        $remaining -= strlen($chunk);
         flush();
     }
     fclose($fp);
