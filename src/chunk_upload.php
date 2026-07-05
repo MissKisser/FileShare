@@ -179,10 +179,22 @@ function handleChunkReceive() {
 
 /**
  * 合并所有分片
+ *
+ * I7 安全加固（4 处）：
+ *   1. 重新校验大文件密码（init 时校验过，merge 时再次校验，防 init 后篡改）
+ *      merge 请求 body 必须带 large_file_password
+ *   2. 实测 merge 后文件大小 vs init 声明 filesize，偏差 > 1% 拒绝（防分片篡改）
+ *   3. 乐观锁：UPDATE status='merging' WHERE status='uploading'，
+ *      affected rows != 1 拒绝（防并发 merge 双倍写库）
+ *   4. stream_copy_to_stream 检查返回值，失败回滚
  */
 function handleChunkMerge() {
     $input = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($input)) {
+        apiError('请求体格式错误', 400);
+    }
     $sessionId = preg_replace('/[^a-f0-9]/i', '', $input['session_id'] ?? '');
+    $largeFilePassword = $input['large_file_password'] ?? '';
 
     if (strlen($sessionId) !== 32) {
         apiError('无效的 session_id', 400);
@@ -195,6 +207,14 @@ function handleChunkMerge() {
 
     if (!$log) {
         apiError('会话不存在或已结束', 410);
+    }
+
+    // I7.1：重新校验大文件密码（init 时已校验，merge 时再校验，防 init 后绕过）
+    $declaredSize = intval($log['filesize']);
+    if ($declaredSize > MAX_FILE_SIZE_NORMAL) {
+        if (!verifyLargeFilePassword($largeFilePassword)) {
+            apiError('大文件密码错误或缺失（merge 阶段重新校验）', 403);
+        }
     }
 
     $totalChunks = intval($log['chunk_count']);
@@ -210,79 +230,90 @@ function handleChunkMerge() {
         ), 409);
     }
 
-    // 合并分片
+    // I7.3：乐观锁 —— 把 status 从 'uploading' 改为 'merging'，
+    // affected rows != 1 说明已被其他 merge 请求抢先，拒绝
+    $lockStmt = $db->prepare("UPDATE upload_logs SET status = 'merging' WHERE session_id = ? AND status = 'uploading'");
+    $lockStmt->execute(array($sessionId));
+    if ($lockStmt->rowCount() !== 1) {
+        apiError('会话正在被另一个 merge 请求处理，请勿重复提交', 409);
+    }
+
     $sessionDir = CHUNK_DIR . $sessionId . '/';
-    $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($log['filename']));
-    $safeName = substr($safeName, 0, 200);
+    $safeName = sanitizeStoredFilename($log['filename']);
     $finalName = time() . '_' . uniqid() . '_' . $safeName;
     $finalPath = UPLOAD_DIR . $finalName;
 
     $fp = fopen($finalPath, 'wb');
     if (!$fp) {
+        // 失败时回退 status 允许重试
+        $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
         apiError('无法创建目标文件', 500);
     }
 
+    // I7.4：检查 stream_copy_to_stream 返回值
+    $mergeError = null;
     for ($i = 0; $i < $totalChunks; $i++) {
         $chunkPath = $sessionDir . $i;
         if (!file_exists($chunkPath)) {
-            fclose($fp);
-            @unlink($finalPath);
-            apiResponse(array('success' => false, 'error' => 'INCOMPLETE_CHUNKS', 'missing_chunk' => $i), 409);
+            $mergeError = array('error' => 'INCOMPLETE_CHUNKS', 'missing_chunk' => $i);
+            break;
         }
         $chunkFp = fopen($chunkPath, 'rb');
-        stream_copy_to_stream($chunkFp, $fp);
+        if (!$chunkFp) {
+            $mergeError = array('error' => 'CHUNK_READ_FAILED', 'chunk_index' => $i);
+            break;
+        }
+        $copied = stream_copy_to_stream($chunkFp, $fp);
         fclose($chunkFp);
+        if ($copied === false) {
+            $mergeError = array('error' => 'CHUNK_COPY_FAILED', 'chunk_index' => $i);
+            break;
+        }
     }
     fclose($fp);
 
-    // SHA-256 + 去重
-    $fileHash = hash_file('sha256', $finalPath);
-    $dupStmt = $db->prepare('SELECT id, path FROM items WHERE file_hash = ? AND type = \'file\' LIMIT 1');
-    $dupStmt->execute(array($fileHash));
-    $duplicate = $dupStmt->fetch();
-
-    if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
+    if ($mergeError !== null) {
         @unlink($finalPath);
-        $finalPath = $duplicate['path'];
+        // 失败时回退 status 允许重试
+        $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
+        apiResponse(array_merge(array('success' => false), $mergeError), 409);
     }
 
-    $mimeType = '';
-    if (function_exists('finfo_open')) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $finalPath);
-        finfo_close($finfo);
+    // I7.2：实测 merge 后大小 vs init 声明 filesize
+    // 偏差 > 1% 拒绝（防攻击者控制分片大小绕过 init 时的密码阈值）
+    $actualSize = filesize($finalPath);
+    if ($actualSize <= 0) {
+        @unlink($finalPath);
+        $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
+        apiError('合并后文件大小异常', 500);
+    }
+    $sizeDeviationPct = abs($actualSize - $declaredSize) / max($declaredSize, 1) * 100;
+    if ($sizeDeviationPct > 1.0) {
+        @unlink($finalPath);
+        $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
+        apiError("合并后文件大小 ({$actualSize}) 与初始声明 ({$declaredSize}) 偏差超过 1%，疑似分片篡改", 400);
+    }
+    // 同时强校验：实测大小若超过普通阈值且未通过密码，也拒绝（双重保险）
+    if ($actualSize > MAX_FILE_SIZE_NORMAL && !verifyLargeFilePassword($largeFilePassword)) {
+        @unlink($finalPath);
+        $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
+        apiError('实际文件大小超过普通上限，需要大文件密码', 403);
     }
 
+    // I6 重构：复用 createFileItem 完成去重 + INSERT + 日志
+    // chunk merge 场景文件已在 UPLOAD_DIR，传 isAlreadyMoved=true（用 rename 而非 move_uploaded_file）
     $duration = intval($log['duration']);
-    $expire = $duration === 0 ? 0 : (time() + $duration);
-    $shareCode = generateShareCode($db);
-    $ownerToken = generateOwnerToken($db);
-    $ownerTokenHash = hash('sha256', $ownerToken);
+    $accessPassword = ''; // chunk init 当前未支持 access_password 字段，预留
+    $result = createFileItem($log['filename'], $finalPath, $actualSize, $duration, $accessPassword, true);
+    if ($result['error'] !== null) {
+        // 失败时回退 status，清理可能的临时文件
+        $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
+        apiError($result['error'], 400);
+    }
 
-    $itemStmt = $db->prepare('
-        INSERT INTO items
-            (share_code, type, name, path, size, file_hash, mime_type, download_count,
-             ip, user_agent, time, expire, duration, thumbnail_path, owner_token_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ');
-    $itemStmt->execute(array(
-        $shareCode,
-        'file',
-        $log['filename'],
-        $finalPath,
-        intval($log['filesize']),
-        $fileHash,
-        $mimeType,
-        0,
-        $log['ip'],
-        $log['user_agent'],
-        time(),
-        $expire,
-        $duration,
-        null,
-        $ownerTokenHash,
-    ));
-    $itemId = $db->lastInsertId();
+    $itemId = $result['item']['id'];
+    $shareCode = $result['item']['share_code'];
+    $ownerToken = $result['owner_token'];
 
     $db->prepare('UPDATE upload_logs SET status = ?, item_id = ? WHERE session_id = ?')
        ->execute(array('merged', $itemId, $sessionId));
@@ -300,8 +331,8 @@ function handleChunkMerge() {
             'share_url' => getBaseUrl() . '?s=' . $shareCode,
             'manage_url' => getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken,
             'name' => $log['filename'],
-            'size' => intval($log['filesize']),
-            'size_formatted' => formatSize($log['filesize']),
+            'size' => $actualSize,
+            'size_formatted' => formatSize($actualSize),
         ),
     ));
 }
