@@ -185,6 +185,16 @@ function handleRequest() {
         return;
     }
 
+    // ===== owner 自删除路由（通过管理链接 ?s=&manage= 触发） =====
+    // 设计原则：
+    //   - 不需要 CSRF（owner token 本身就是凭证，类比 API bearer token）
+    //   - 不需要 admin 登录（owner 是上传者本人）
+    //   - 验证失败统一返回 403 + 模糊信息（防 enumeration）
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'owner_delete') {
+        handleOwnerDelete();
+        return;
+    }
+
     // 分享密码验证已在 handleRequest 顶部（?s= 之前）处理，这里不再重复
 
     // ===== 大文件密码预校验请求（AJAX 调用） =====
@@ -431,6 +441,8 @@ function handleFileUpload() {
 
                 $expire = $duration === 0 ? 0 : time() + $duration;
                 $shareCode = generateShareCode($db);
+                $ownerToken = generateOwnerToken($db);
+                $ownerTokenHash = hash('sha256', $ownerToken);
 
                 // 密码处理
                 $passwordHash = null;
@@ -440,8 +452,8 @@ function handleFileUpload() {
 
                 // 插入数据库
                 $stmt = $db->prepare('
-                    INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ');
                 $stmt->execute([
                     $shareCode,
@@ -457,7 +469,8 @@ function handleFileUpload() {
                     $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
                     time(),
                     $expire,
-                    $duration
+                    $duration,
+                    $ownerTokenHash
                 ]);
 
                 $itemId = $db->lastInsertId();
@@ -471,6 +484,8 @@ function handleFileUpload() {
                     'name' => $originalName,
                     'share_code' => $shareCode,
                     'share_url' => getBaseUrl() . '?s=' . $shareCode,
+                    // owner 管理链接：创建者凭此可删除自己上传
+                    'manage_url' => getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken,
                     'size' => $files['size'][$i],
                 ];
             } else {
@@ -527,6 +542,8 @@ function handleTextSave() {
         $db = getDB();
         $expire = $duration === 0 ? 0 : time() + $duration;
         $shareCode = generateShareCode($db);
+        $ownerToken = generateOwnerToken($db);
+        $ownerTokenHash = hash('sha256', $ownerToken);
 
         // 密码处理
         $passwordHash = null;
@@ -535,8 +552,8 @@ function handleTextSave() {
         }
 
         $stmt = $db->prepare('
-            INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $stmt->execute([
             $shareCode,
@@ -549,7 +566,8 @@ function handleTextSave() {
             $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
             time(),
             $expire,
-            $duration
+            $duration,
+            $ownerTokenHash
         ]);
 
         $itemId = $db->lastInsertId();
@@ -563,7 +581,11 @@ function handleTextSave() {
         }
         logUploadToDb($itemId, $logLabel, strlen($text), $duration);
 
+        // 跳转到 share 页（带 manage 参数让创建者首次就能看到管理入口）
         $_SESSION['message'] = '文本保存成功！分享链接：' . getBaseUrl() . '?s=' . $shareCode;
+        // 用 302 跳到 ?s=&manage= 而不是 ?s=，让首次访问者直接看到 "删除我的上传" 入口
+        header('Location: ' . getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken);
+        exit; // 直接 exit，避免被下面的 $_SERVER['PHP_SELF'] header 覆盖
     }
 
     header('Location: ' . $_SERVER['PHP_SELF']);
@@ -666,6 +688,69 @@ function handleBatchDelete() {
 }
 
 // ============================================================
+// Owner 自删除（管理链接 ?s=&manage= 触发的 POST）
+//
+// 设计原则：
+//   - 凭证就是 manage_url 里的明文 token（256 位熵，DB 仅存 sha256）
+//   - 不需要 CSRF / admin 登录
+//   - 验证失败统一返回 403 + 模糊信息（防 enumeration：分不清"项目不存在"和"token 错"）
+//   - 复用 deleteItemById → deleteItemsAtomically，事务/FK/引用计数/审计全自动
+// ============================================================
+function handleOwnerDelete() {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'message' => 'Method Not Allowed'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $shareCode = trim($_POST['share_code'] ?? '');
+    $token = trim($_POST['manage'] ?? '');
+    if (empty($shareCode) || empty($token)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => '缺少参数'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // 长度校验：sha256 hex 64，token hex 64
+    if (strlen($shareCode) > 32 || strlen($token) > 256) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => '参数格式错误'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $tokenHash = hash('sha256', $token);
+    $db = getDB();
+    $stmt = $db->prepare('SELECT id, share_code, type FROM items WHERE share_code = ? AND owner_token_hash = ?');
+    $stmt->execute([$shareCode, $tokenHash]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // 统一错误信息：分不清"项目不存在"和"token 错"
+    if (!$item) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => '管理链接无效或已过期'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // 复用原子删除（事务、FK 清理、引用计数 unlink、rollback）
+    if (deleteItemById((int)$item['id'])) {
+        // 审计：owner_delete 与 admin_delete 走同一条 audit log；
+        // logAdminAction() 会把 share_code / type 写进 filename 列，
+        // item_id 永远为 NULL（避开 FK 约束 + 历史兼容性）。
+        logAdminAction('owner_delete', (int)$item['id'], $item['share_code'], $item['type']);
+        // 清理 session 标记（如果用户在本会话曾验过 owner）
+        unset($_SESSION['owner_confirmed_' . $shareCode]);
+        unset($_SESSION['owner_token_' . $shareCode]);
+        echo json_encode(['success' => true, 'message' => '已删除'], JSON_UNESCAPED_UNICODE);
+    } else {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => '删除失败'], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+// ============================================================
 // 下载处理
 // ============================================================
 function handleDownload() {
@@ -735,6 +820,32 @@ function handleSharePage() {
         if (empty($_SESSION[$unlockedKey])) {
             $unlocked = false;
         }
+    }
+
+    // Owner token 验证（独立于密码，URL 带 ?manage=<token> 时触发）
+    // 设计：
+    //   - URL ?manage=<plaintext> 验证成功后：写 boolean 标记 + 明文 token 到 session
+    //   - 后续本会话访问不带 ?manage= 的 ?s=<code> 仍能展示管理入口（且能 POST 删）
+    //   - 验证失败时静默不报错（防 enumeration）
+    $isOwner = false;
+    $manageToken = '';
+    $manageTokenFromUrl = trim($_GET['manage'] ?? '');
+    if (!empty($manageTokenFromUrl)) {
+        $db = getDB(); // handleSharePage() 上方没初始化 $db，这里要现取
+        $tokenHash = hash('sha256', $manageTokenFromUrl);
+        $chk = $db->prepare('SELECT id FROM items WHERE share_code = ? AND owner_token_hash = ?');
+        $chk->execute([$code, $tokenHash]);
+        if ($chk->fetch()) {
+            $isOwner = true;
+            $manageToken = $manageTokenFromUrl;
+            $_SESSION['owner_confirmed_' . $code] = true;
+            // 同时存明文 token 到 session（用于后续无 ?manage= 的访问也能 POST 删）
+            $_SESSION['owner_token_' . $code] = $manageTokenFromUrl;
+        }
+    } elseif (!empty($_SESSION['owner_confirmed_' . $code]) && !empty($_SESSION['owner_token_' . $code])) {
+        // 已在本会话验过 owner；从 session 恢复明文 token
+        $isOwner = true;
+        $manageToken = $_SESSION['owner_token_' . $code];
     }
 
     define('SHARE_PAGE', true);

@@ -589,6 +589,23 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
                         </div>
                         <?php endif; ?>
                     </div>
+
+                    <?php if (!empty($isOwner)): ?>
+                        <!--
+                            Owner 管理入口（仅本人可见）
+                            来源：URL ?manage=<token> 验证成功 / 本会话已验过
+                            删除按钮需 manage_token 存在（保证后续 POST 能通过）
+                        -->
+                        <div class="share-sidebar-section share-owner-section">
+                            <div class="share-sidebar-label">管理操作</div>
+                            <?php if (!empty($manageToken)): ?>
+                                <button type="button" class="btn btn-danger btn-sm btn-block" id="ownerDeleteBtn">删除我的上传</button>
+                                <p class="share-owner-hint">这是上传者本人才能看到的操作</p>
+                            <?php else: ?>
+                                <p class="share-owner-hint">已识别为上传者；如需删除，请使用原始管理链接</p>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
                 </aside>
             </div>
         <?php endif; ?>
@@ -852,6 +869,32 @@ $shareUrl = $baseUrl . '?s=' . $shareCode;
             }
         })();
     </script>
+    <?php if (!empty($isOwner) && !empty($manageToken)): ?>
+    <!-- Owner 删除按钮（仅本人可见，仅当 manage_token 可用时渲染） -->
+    <script>
+        (function() {
+            var btn = document.getElementById('ownerDeleteBtn');
+            if (!btn) return;
+            btn.addEventListener('click', function() {
+                if (!window.confirm('确定要删除这个上传吗？此操作不可撤销。')) return;
+                var fd = new FormData();
+                fd.append('action', 'owner_delete');
+                fd.append('share_code', <?php echo json_encode($item['share_code']); ?>);
+                fd.append('manage', <?php echo json_encode($manageToken); ?>);
+                fetch(window.location.pathname, { method: 'POST', body: fd })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d.success) {
+                            window.location.href = '/';
+                        } else {
+                            window.alert('删除失败：' + (d.message || '未知错误'));
+                        }
+                    })
+                    .catch(function() { window.alert('删除请求失败'); });
+            });
+        })();
+    </script>
+    <?php endif; ?>
     <!-- 语法高亮封装（A1） -->
     <script src="/assets/js/syntax.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- 图片灯箱（A2） -->

@@ -64,7 +64,11 @@ function initDB($db) {
             time            INTEGER NOT NULL,
             expire          INTEGER NOT NULL DEFAULT 0,
             duration        INTEGER NOT NULL DEFAULT 600,
-            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            -- owner 凭证：存 sha256(owner_token) 而不是明文。owner_token 是创建者收到的
+            -- 管理链接 ?s=<code>&manage=<token> 里的明文 token，DB 泄露不丢凭证。
+            -- 老数据此列为 NULL，admin 删除依然工作，owner 端只能删了重建。
+            owner_token_hash TEXT
         );
 
         CREATE UNIQUE INDEX idx_share_code ON items(share_code);
@@ -178,6 +182,12 @@ function runIncrementalMigrations($db) {
     if (!in_array('thumbnail_path', $itemCols)) {
         $db->exec("ALTER TABLE items ADD COLUMN thumbnail_path TEXT");
     }
+    if (!in_array('owner_token_hash', $itemCols)) {
+        $db->exec("ALTER TABLE items ADD COLUMN owner_token_hash TEXT");
+        // 部分唯一索引（SQLite 支持 WHERE 子句）：允许历史 NULL 行共存，
+        // 同时让 sha256(token) 查询走索引。新创建的行必填。
+        $db->exec("CREATE UNIQUE INDEX idx_owner_token_hash ON items(owner_token_hash) WHERE owner_token_hash IS NOT NULL");
+    }
 
     // settings 表元数据列（用于后台中文化 / 分组 / 控件类型）
     $settingsCols = array_column(
@@ -244,6 +254,34 @@ function generateShareCode($db) {
     }
     // 极端情况下使用更长的码
     return bin2hex(random_bytes(6));
+}
+
+/**
+ * 生成 owner 管理 token（明文）
+ *
+ * 与 generateShareCode 的区别：
+ *   - share_code 是公共分享凭证（URL 里出现），8 字符 32 位熵勉强够用；
+ *   - owner_token 是删除凭证，**必须**不可猜；64 字符 256 位熵。
+ *   - 返回的是**明文 token**（用于放进创建响应里的 manage_url），
+ *     DB 实际存的是 sha256(token)。模型与 api_tokens.token_hash 完全一致。
+ *
+ * @param PDO $db
+ * @return string 64 字符十六进制明文 token
+ * @throws RuntimeException 撞库超过 5 次（极不可能）
+ */
+function generateOwnerToken($db) {
+    $maxAttempts = 5;
+    for ($i = 0; $i < $maxAttempts; $i++) {
+        $token = bin2hex(random_bytes(32)); // 64 字符 hex = 256 位熵
+        $hash = hash('sha256', $token);
+        $stmt = $db->prepare('SELECT id FROM items WHERE owner_token_hash = ?');
+        $stmt->execute([$hash]);
+        if ($stmt->fetch() === false) {
+            return $token;
+        }
+    }
+    // 256 位熵撞库概率 2^-256，5 次连续碰撞视为异常
+    throw new RuntimeException('Failed to generate unique owner_token after 5 attempts');
 }
 
 /**

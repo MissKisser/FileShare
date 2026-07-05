@@ -256,12 +256,14 @@ function handleChunkMerge() {
     $duration = intval($log['duration']);
     $expire = $duration === 0 ? 0 : (time() + $duration);
     $shareCode = generateShareCode($db);
+    $ownerToken = generateOwnerToken($db);
+    $ownerTokenHash = hash('sha256', $ownerToken);
 
     $itemStmt = $db->prepare('
         INSERT INTO items
             (share_code, type, name, path, size, file_hash, mime_type, download_count,
-             ip, user_agent, time, expire, duration, thumbnail_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ip, user_agent, time, expire, duration, thumbnail_path, owner_token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $itemStmt->execute(array(
         $shareCode,
@@ -278,6 +280,7 @@ function handleChunkMerge() {
         $expire,
         $duration,
         null,
+        $ownerTokenHash,
     ));
     $itemId = $db->lastInsertId();
 
@@ -295,6 +298,7 @@ function handleChunkMerge() {
             'id' => $itemId,
             'share_code' => $shareCode,
             'share_url' => getBaseUrl() . '?s=' . $shareCode,
+            'manage_url' => getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken,
             'name' => $log['filename'],
             'size' => intval($log['filesize']),
             'size_formatted' => formatSize($log['filesize']),

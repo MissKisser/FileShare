@@ -474,24 +474,30 @@ function handleApiUpload() {
 
             $expire = $duration === 0 ? 0 : time() + $duration;
             $shareCode = generateShareCode($db);
+            $ownerToken = generateOwnerToken($db);
+            $ownerTokenHash = hash('sha256', $ownerToken);
             $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
 
             $stmt = $db->prepare('
-                INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $shareCode, 'file', $originalName, $filepath, $files['size'][$i],
                 $fileHash, $mimeType, $passwordHash, 0,
                 getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-                time(), $expire, $duration
+                time(), $expire, $duration,
+                $ownerTokenHash
             ]);
 
             $itemId = $db->lastInsertId();
             logUploadToDb($itemId, $originalName, $files['size'][$i], $duration);
 
             $uploadCount++;
-            $uploadedItems[] = formatItemForApi(getItemById($itemId));
+            $apiItem = formatItemForApi(getItemById($itemId));
+            // owner 管理链接（仅创建响应返回一次；明文 token 不入库）
+            $apiItem['manage_url'] = getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken;
+            $uploadedItems[] = $apiItem;
         } else {
             $errors[] = "文件 {$files['name'][$i]} 上传错误（代码：{$files['error'][$i]}）";
         }
@@ -523,17 +529,20 @@ function handleApiTextSave() {
     $db = getDB();
     $expire = $duration === 0 ? 0 : time() + $duration;
     $shareCode = generateShareCode($db);
+    $ownerToken = generateOwnerToken($db);
+    $ownerTokenHash = hash('sha256', $ownerToken);
     $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
 
     $stmt = $db->prepare('
-        INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([
         $shareCode, 'text', $text, strlen($text),
         $passwordHash, 0,
         getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-        time(), $expire, $duration
+        time(), $expire, $duration,
+        $ownerTokenHash
     ]);
 
     $itemId = $db->lastInsertId();
@@ -544,10 +553,14 @@ function handleApiTextSave() {
     }
     logUploadToDb($itemId, $logLabel, strlen($text), $duration);
 
+    $apiItem = formatItemForApi(getItemById($itemId));
+    // owner 管理链接（仅创建响应返回一次；明文 token 不入库）
+    $apiItem['manage_url'] = getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken;
+
     apiResponse([
         'success' => true,
         'message' => '文本保存成功',
-        'item' => formatItemForApi(getItemById($itemId)),
+        'item' => $apiItem,
     ], 201);
 }
 
