@@ -568,12 +568,24 @@ function incrementDownloadCount($id, $ip = '', $userAgent = '') {
     ');
     $logStmt->execute([$id, $ip, $userAgent, time()]);
 
-    // 清理旧日志（保留最近 10000 条）
-    $db->exec('
-        DELETE FROM download_logs WHERE id NOT IN (
-            SELECT id FROM download_logs ORDER BY download_time DESC LIMIT 10000
-        )
-    ');
+    // M11：日志清理移出热路径
+    // 原实现每次下载都跑 DELETE FROM download_logs WHERE id NOT IN (... LIMIT 10000)
+    // 全表子查询，下载高峰时放大 DB 写入。
+    // 改为：settings 表计数器 download_logs_cleaned_at，距离上次 > 1 小时才清理
+    $lastClean = (int)getSetting('download_logs_cleaned_at', '0');
+    if ($lastClean === 0 || (time() - $lastClean) > 3600) {
+        setSetting('download_logs_cleaned_at', (string)time());
+        try {
+            // 保留最近 10000 条
+            $idsToKeep = $db->query('SELECT id FROM download_logs ORDER BY download_time DESC LIMIT 10000')->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($idsToKeep)) {
+                $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
+                $db->prepare("DELETE FROM download_logs WHERE id NOT IN ($placeholders)")->execute($idsToKeep);
+            }
+        } catch (Exception $e) {
+            error_log('download_logs cleanup failed: ' . $e->getMessage());
+        }
+    }
 }
 
 /**
@@ -602,20 +614,26 @@ function logUploadToDb($itemId, $filename, $filesize, $duration) {
         'upload'
     ]);
 
-    // 清理旧日志（保留最近 500 条）
-    // 使用两步清理：先查 id，再 DELETE — 避免 SQLite 同表子查询限制
-    try {
-        $idsToKeep = $db->query('
-            SELECT id FROM upload_logs ORDER BY upload_time DESC LIMIT 500
-        ')->fetchAll(PDO::FETCH_COLUMN);
-        if (!empty($idsToKeep)) {
-            $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
-            $db->prepare("DELETE FROM upload_logs WHERE id NOT IN ($placeholders)")
-               ->execute($idsToKeep);
+    // M11：日志清理移出热路径（与 incrementDownloadCount 一致）
+    // settings 表计数器 upload_logs_cleaned_at，距离上次 > 1 小时才清理
+    $lastClean = (int)getSetting('upload_logs_cleaned_at', '0');
+    if ($lastClean === 0 || (time() - $lastClean) > 3600) {
+        setSetting('upload_logs_cleaned_at', (string)time());
+        try {
+            // 清理旧日志（保留最近 500 条）
+            // 使用两步清理：先查 id，再 DELETE — 避免 SQLite 同表子查询限制
+            $idsToKeep = $db->query('
+                SELECT id FROM upload_logs ORDER BY upload_time DESC LIMIT 500
+            ')->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($idsToKeep)) {
+                $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
+                $db->prepare("DELETE FROM upload_logs WHERE id NOT IN ($placeholders)")
+                   ->execute($idsToKeep);
+            }
+        } catch (Exception $e) {
+            // 清理失败不影响主流程
+            error_log('logUploadToDb cleanup failed: ' . $e->getMessage());
         }
-    } catch (Exception $e) {
-        // 清理失败不影响主流程
-        error_log('logUploadToDb cleanup failed: ' . $e->getMessage());
     }
 }
 
