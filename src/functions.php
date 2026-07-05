@@ -264,15 +264,17 @@ function batchDeleteItems($ids) {
 
 /**
  * 搜索项目
- * 
+ *
  * @param string $query 搜索关键词
  * @param string $typeFilter 类型过滤 (all/file/text)
  * @param string $categoryFilter 分类过滤 (image/video/audio/doc/code/archive)
  * @param string $sort 排序字段 (time/size/name/expire)
  * @param string $sortOrder 排序方向 (desc/asc)
+ * @param int|null $limit 限制条数（null=不限，I4 admin 分页用）
+ * @param int $offset 偏移量（I4 admin 分页用）
  * @return array
  */
-function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $sort = 'time', $sortOrder = 'desc') {
+function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $sort = 'time', $sortOrder = 'desc', $limit = null, $offset = 0) {
     $db = getDB();
     $params = [];
     $where = ['1=1'];
@@ -313,10 +315,59 @@ function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $so
     $sort = in_array($sort, $allowedSorts) ? $sort : 'time';
     $sortOrder = strtolower($sortOrder) === 'asc' ? 'ASC' : 'DESC';
 
-    $sql = "SELECT * FROM items WHERE {$whereClause} ORDER BY {$sort} {$sortOrder}";
+    // I4：可选 limit/offset（向后兼容：null=不限）
+    $limitClause = '';
+    if ($limit !== null) {
+        $limit = max(1, (int)$limit);
+        $offset = max(0, (int)$offset);
+        $limitClause = " LIMIT {$limit} OFFSET {$offset}";
+    }
+
+    $sql = "SELECT * FROM items WHERE {$whereClause} ORDER BY {$sort} {$sortOrder}{$limitClause}";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
+}
+
+/**
+ * 统计满足搜索条件的总数（用于 admin items 分页 UI）
+ *
+ * 参数与 searchItems 一致（除 limit/offset）
+ */
+function countSearchItems($query = '', $typeFilter = 'all', $categoryFilter = '') {
+    $db = getDB();
+    $params = [];
+    $where = ['1=1'];
+
+    if (!empty($query)) {
+        $where[] = '(name LIKE ? OR content LIKE ?)';
+        $params[] = '%' . $query . '%';
+        $params[] = '%' . $query . '%';
+    }
+
+    if ($typeFilter === 'file') {
+        $where[] = "type = 'file'";
+    } elseif ($typeFilter === 'text') {
+        $where[] = "type = 'text'";
+    }
+
+    if (!empty($categoryFilter)) {
+        $extensions = getCategoryExtensions($categoryFilter);
+        if (!empty($extensions)) {
+            $nameConditions = [];
+            foreach ($extensions as $ext) {
+                $nameConditions[] = "name LIKE ?";
+                $params[] = '%.' . $ext;
+            }
+            $where[] = "type = 'file' AND (" . implode(' OR ', $nameConditions) . ")";
+        }
+    }
+
+    $whereClause = implode(' AND ', $where);
+    $sql = "SELECT COUNT(*) FROM items WHERE {$whereClause}";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    return (int)$stmt->fetchColumn();
 }
 
 /**

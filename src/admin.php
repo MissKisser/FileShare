@@ -218,12 +218,27 @@ function getAdminItemsData() {
     $sort = $_GET['sort'] ?? 'time';
     $sortOrder = $_GET['order'] ?? 'desc';
 
-    $items = searchItems($query, $typeFilter, '', $sort, $sortOrder);
+    // I4：分页（默认 50/页，避免 items 表上万行后 admin 页全量渲染卡顿）
+    $perPage = 50;
+    $page = max(1, intval($_GET['page'] ?? 1));
+    $offset = ($page - 1) * $perPage;
+    $total = countSearchItems($query, $typeFilter, '');
+    $items = searchItems($query, $typeFilter, '', $sort, $sortOrder, $perPage, $offset);
+
+    $totalPages = $total > 0 ? (int)ceil($total / $perPage) : 1;
 
     return [
         'items' => $items,
         'query' => $query,
         'type_filter' => $typeFilter,
+        'pagination' => [
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+            'has_prev' => $page > 1,
+            'has_next' => $page < $totalPages,
+        ],
     ];
 }
 
