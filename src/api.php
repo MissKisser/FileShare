@@ -250,6 +250,14 @@ function handleApiRequest() {
 // ============================================================
 
 function handleApiAuthToken() {
+    // 速率限制：按 IP 维度，10 次/60 秒
+    // API auth 端点用 ADMIN_PASSWORD 认证，默认值弱，必须防爆破
+    $rateLimitKey = 'api_auth_' . getRealIP();
+    if (isRateLimitedByKey($rateLimitKey, 10, 60)) {
+        http_response_code(429);
+        apiError('尝试次数过多，请稍后再试', 429);
+    }
+
     $input = json_decode(file_get_contents('php://input'), true);
     $password = $input['password'] ?? '';
 
@@ -262,6 +270,7 @@ function handleApiAuthToken() {
     }
 
     if (!hash_equals(ADMIN_PASSWORD, $password)) {
+        recordRateLimitByKey($rateLimitKey);
         apiError('密码错误', 401);
     }
 

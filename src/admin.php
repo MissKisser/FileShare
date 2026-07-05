@@ -33,11 +33,19 @@ function isAdminLoggedIn() {
  * 管理员登录
  */
 function adminLogin($password) {
+    // 速率限制：按 IP 维度，10 次/60 秒
+    // admin 密码默认值 please-change-admin-password 较弱，必须防爆破
+    $rateLimitKey = 'admin_login_' . getRealIP();
+    if (isRateLimitedByKey($rateLimitKey, 10, 60)) {
+        return ['success' => false, 'message' => '尝试次数过多，请稍后再试'];
+    }
+
     if (empty(ADMIN_PASSWORD)) {
         return ['success' => false, 'message' => '管理员密码未配置'];
     }
 
     if (!hash_equals(ADMIN_PASSWORD, $password)) {
+        recordRateLimitByKey($rateLimitKey);
         return ['success' => false, 'message' => '密码错误'];
     }
 
