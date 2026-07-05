@@ -431,98 +431,30 @@ function handleFileUpload() {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
                 $originalName = $files['name'][$i];
 
-                // 文件类型安全验证
-                $validation = validateFileType($originalName, $files['tmp_name'][$i]);
-                if (!$validation['valid']) {
-                    $errors[] = $validation['error'];
+                // I6 重构：复用 createFileItem（含类型校验、去重、move、INSERT、日志）
+                $result = createFileItem(
+                    $originalName,
+                    $files['tmp_name'][$i],
+                    $files['size'][$i],
+                    $duration,
+                    $accessPassword,
+                    false // 普通上传，调用 move_uploaded_file
+                );
+                if ($result['error'] !== null) {
+                    $errors[] = $result['error'];
                     continue;
                 }
 
-                // 计算文件哈希（F10 去重）
-                $fileHash = hash_file('sha256', $files['tmp_name'][$i]);
-
-                // 检查是否有相同哈希的文件已存在
-                $dupStmt = $db->prepare('SELECT id, path, share_code FROM items WHERE file_hash = ? AND type = \'file\' LIMIT 1');
-                $dupStmt->execute([$fileHash]);
-                $duplicate = $dupStmt->fetch();
-
-                // 净化文件名
-                $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($originalName));
-                $safeName = substr($safeName, 0, 200);
-
-                if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
-                    // 去重：复用已有文件路径
-                    $filepath = $duplicate['path'];
-                } else {
-                    // 新文件
-                    $filename = time() . '_' . uniqid() . '_' . $safeName;
-                    $filepath = UPLOAD_DIR . $filename;
-
-                    if (!is_dir(UPLOAD_DIR)) {
-                        mkdir(UPLOAD_DIR, 0755, true);
-                    }
-
-                    if (!move_uploaded_file($files['tmp_name'][$i], $filepath)) {
-                        $errors[] = "文件 {$originalName} 移动失败";
-                        continue;
-                    }
-                }
-
-                // 检测 MIME 类型
-                $mimeType = '';
-                if (function_exists('finfo_open')) {
-                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                    $mimeType = finfo_file($finfo, $filepath);
-                    finfo_close($finfo);
-                }
-
-                $expire = $duration === 0 ? 0 : time() + $duration;
-                $shareCode = generateShareCode($db);
-                $ownerToken = generateOwnerToken($db);
-                $ownerTokenHash = hash('sha256', $ownerToken);
-
-                // 密码处理
-                $passwordHash = null;
-                if (!empty($accessPassword)) {
-                    $passwordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
-                }
-
-                // 插入数据库
-                $stmt = $db->prepare('
-                    INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ');
-                $stmt->execute([
-                    $shareCode,
-                    'file',
-                    $originalName,
-                    $filepath,
-                    $files['size'][$i],
-                    $fileHash,
-                    $mimeType,
-                    $passwordHash,
-                    0,
-                    getRealIP(),
-                    $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-                    time(),
-                    $expire,
-                    $duration,
-                    $ownerTokenHash
-                ]);
-
-                $itemId = $db->lastInsertId();
-
-                // 记录上传日志
-                logUploadToDb($itemId, $originalName, $files['size'][$i], $duration);
-
+                $item = $result['item'];
+                $ownerToken = $result['owner_token'];
                 $uploadCount++;
                 $uploadedItems[] = [
-                    'id' => $itemId,
+                    'id' => $item['id'],
                     'name' => $originalName,
-                    'share_code' => $shareCode,
-                    'share_url' => getBaseUrl() . '?s=' . $shareCode,
+                    'share_code' => $item['share_code'],
+                    'share_url' => getBaseUrl() . '?s=' . $item['share_code'],
                     // owner 管理链接：创建者凭此可删除自己上传
-                    'manage_url' => getBaseUrl() . '?s=' . $shareCode . '&manage=' . $ownerToken,
+                    'manage_url' => getBaseUrl() . '?s=' . $item['share_code'] . '&manage=' . $ownerToken,
                     'size' => $files['size'][$i],
                 ];
             } else {
@@ -579,47 +511,10 @@ function handleTextSave() {
     $accessPassword = $_POST['access_password'] ?? ''; // F2 访问密码
 
     if (!empty(trim($text))) {
-        $db = getDB();
-        $expire = $duration === 0 ? 0 : time() + $duration;
-        $shareCode = generateShareCode($db);
-        $ownerToken = generateOwnerToken($db);
-        $ownerTokenHash = hash('sha256', $ownerToken);
-
-        // 密码处理
-        $passwordHash = null;
-        if (!empty($accessPassword)) {
-            $passwordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
-        }
-
-        $stmt = $db->prepare('
-            INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ');
-        $stmt->execute([
-            $shareCode,
-            'text',
-            $text,
-            strlen($text),
-            $passwordHash,
-            0,
-            getRealIP(),
-            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-            time(),
-            $expire,
-            $duration,
-            $ownerTokenHash
-        ]);
-
-        $itemId = $db->lastInsertId();
-
-        // 记录日志
-        // 注意：出于隐私/安全考虑，日志不再保存文本原文（前 20 字符可能含敏感信息，
-        // 密码保护项尤为严重）。只记录类型 + 大小 + 是否带密码。
-        $logLabel = '文本片段';
-        if (!empty($accessPassword)) {
-            $logLabel .= ' [密码保护]';
-        }
-        logUploadToDb($itemId, $logLabel, strlen($text), $duration);
+        // I6 重构：复用 createTextItem（含 INSERT、日志）
+        $result = createTextItem($text, $duration, $accessPassword);
+        $shareCode = $result['item']['share_code'];
+        $ownerToken = $result['owner_token'];
 
         // 跳转到 share 页（带 manage 参数让创建者首次就能看到管理入口）
         $_SESSION['message'] = '文本保存成功！分享链接：' . getBaseUrl() . '?s=' . $shareCode;

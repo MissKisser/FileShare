@@ -151,6 +151,165 @@ function deleteItemById($id) {
     return $result['deleted_count'] === 1;
 }
 
+// ============================================================
+// I6 重构：共用上传/文本创建函数
+// 解决 handleFileUpload / handleApiUpload / handleChunkMerge
+// 与 handleTextSave / handleApiTextSave 严重重复（~200 行复制）的问题
+// ============================================================
+
+/**
+ * 共用：净化文件名为安全的存储文件名
+ *
+ * @param string $originalName 用户上传的原文件名
+ * @return string 净化后的文件名（仅 [a-zA-Z0-9._-]，截断到 200 字符）
+ */
+function sanitizeStoredFilename($originalName) {
+    $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($originalName));
+    return substr($safeName, 0, 200);
+}
+
+/**
+ * 共用：创建文件 item（含去重、SHA-256、move、INSERT、日志）
+ *
+ * 用于：handleFileUpload / handleApiUpload / handleChunkMerge
+ *
+ * @param string $originalName 用户上传的原文件名
+ * @param string $tmpPath 临时文件路径（普通上传是 $_FILES['tmp_name']，chunk 是 merge 后的最终路径）
+ * @param int $size 文件字节数
+ * @param int $duration 保留时长（秒，0=永久）
+ * @param string $accessPassword 访问密码（空字符串=无密码）
+ * @param bool $isAlreadyMoved true=文件已在 UPLOAD_DIR（chunk merge 场景，跳过 move_uploaded_file）
+ * @return array ['item' => array|null, 'owner_token' => string, 'error' => string|null, 'final_path' => string]
+ *                error 非 null 时表示失败（类型校验/移动失败等）
+ */
+function createFileItem($originalName, $tmpPath, $size, $duration, $accessPassword, $isAlreadyMoved = false) {
+    $db = getDB();
+
+    // 1. 文件类型安全验证（白名单 + MIME）
+    $validation = validateFileType($originalName, $tmpPath);
+    if (!$validation['valid']) {
+        return ['item' => null, 'owner_token' => '', 'error' => $validation['error'], 'final_path' => ''];
+    }
+
+    // 2. 计算 SHA-256 + 去重
+    $fileHash = hash_file('sha256', $tmpPath);
+    $dupStmt = $db->prepare("SELECT id, path, share_code FROM items WHERE file_hash = ? AND type = 'file' LIMIT 1");
+    $dupStmt->execute([$fileHash]);
+    $duplicate = $dupStmt->fetch();
+
+    $safeName = sanitizeStoredFilename($originalName);
+
+    // 3. 决定最终路径（去重复用 / 新文件 move）
+    if ($duplicate && !empty($duplicate['path']) && file_exists($duplicate['path'])) {
+        $filepath = $duplicate['path'];
+        // chunk merge 场景：临时拼接的文件不再需要，删掉
+        if ($isAlreadyMoved && $tmpPath !== $filepath && file_exists($tmpPath)) {
+            @unlink($tmpPath);
+        }
+    } else {
+        $filename = time() . '_' . uniqid() . '_' . $safeName;
+        $filepath = UPLOAD_DIR . $filename;
+        if (!is_dir(UPLOAD_DIR)) {
+            mkdir(UPLOAD_DIR, 0755, true);
+        }
+        if ($isAlreadyMoved) {
+            // chunk merge：文件已在 UPLOAD_DIR 临时位置，rename 到去重新位置
+            if (!@rename($tmpPath, $filepath)) {
+                return ['item' => null, 'owner_token' => '', 'error' => "文件 {$originalName} 移动失败", 'final_path' => ''];
+            }
+        } else {
+            if (!move_uploaded_file($tmpPath, $filepath)) {
+                return ['item' => null, 'owner_token' => '', 'error' => "文件 {$originalName} 移动失败", 'final_path' => ''];
+            }
+        }
+    }
+
+    // 4. 检测 MIME
+    $mimeType = '';
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $filepath);
+        finfo_close($finfo);
+    }
+
+    // 5. INSERT items
+    $expire = $duration === 0 ? 0 : time() + $duration;
+    $shareCode = generateShareCode($db);
+    $ownerToken = generateOwnerToken($db);
+    $ownerTokenHash = hash('sha256', $ownerToken);
+    $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
+
+    $stmt = $db->prepare('
+        INSERT INTO items (share_code, type, name, path, size, file_hash, mime_type, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+    $stmt->execute([
+        $shareCode, 'file', $originalName, $filepath, $size,
+        $fileHash, $mimeType, $passwordHash, 0,
+        getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+        time(), $expire, $duration, $ownerTokenHash,
+    ]);
+
+    $itemId = $db->lastInsertId();
+    logUploadToDb($itemId, $originalName, $size, $duration);
+    invalidateStorageStatsCache();
+
+    $item = getItemById($itemId);
+    return [
+        'item' => $item,
+        'owner_token' => $ownerToken,
+        'error' => null,
+        'final_path' => $filepath,
+    ];
+}
+
+/**
+ * 共用：创建文本 item
+ *
+ * 用于：handleTextSave / handleApiTextSave
+ *
+ * @param string $text 文本内容
+ * @param int $duration 保留时长（秒，0=永久）
+ * @param string $accessPassword 访问密码
+ * @return array ['item' => array, 'owner_token' => string]
+ */
+function createTextItem($text, $duration, $accessPassword) {
+    $db = getDB();
+
+    $expire = $duration === 0 ? 0 : time() + $duration;
+    $shareCode = generateShareCode($db);
+    $ownerToken = generateOwnerToken($db);
+    $ownerTokenHash = hash('sha256', $ownerToken);
+    $passwordHash = !empty($accessPassword) ? password_hash($accessPassword, PASSWORD_BCRYPT) : null;
+
+    $stmt = $db->prepare('
+        INSERT INTO items (share_code, type, content, size, password, download_count, ip, user_agent, time, expire, duration, owner_token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+    $stmt->execute([
+        $shareCode, 'text', $text, strlen($text),
+        $passwordHash, 0,
+        getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+        time(), $expire, $duration, $ownerTokenHash,
+    ]);
+
+    $itemId = $db->lastInsertId();
+
+    // 日志：不记录原文（隐私/安全，密码保护项尤为严重），仅记录类型 + 大小 + 是否密码保护
+    $logLabel = '文本片段';
+    if (!empty($accessPassword)) {
+        $logLabel .= ' [密码保护]';
+    }
+    logUploadToDb($itemId, $logLabel, strlen($text), $duration);
+    invalidateStorageStatsCache();
+
+    $item = getItemById($itemId);
+    return [
+        'item' => $item,
+        'owner_token' => $ownerToken,
+    ];
+}
+
 /**
  * 原子删除一个或多个 item — P1 重构核心
  *
