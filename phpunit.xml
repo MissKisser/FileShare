@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         failOnRisky="true"
+         failOnWarning="true">
+    <testsuites>
+        <testsuite name="unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <!-- 测试用 BASE_URL（手动集成测试用，PHPUnit 内的 HTTP 测试会 mock 或用 PHP 内置服务器） -->
+        <env name="BASE_URL" value="http://127.0.0.1:8767"/>
+        <!-- 测试用临时 SQLite 路径（独立于生产 storage/fileshare.db） -->
+        <env name="TEST_DB_PATH" value="storage/fileshare.test.db"/>
+    </php>
+</phpunit>
