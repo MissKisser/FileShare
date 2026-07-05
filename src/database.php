@@ -334,9 +334,16 @@ function migrateJsonToSqlite() {
                 $stats['items']++;
             }
 
-            // 备份旧文件
+            // 备份旧文件（M12：rename 跨设备失败回退到 copy + unlink）
             if (file_exists($dataFile) && !file_exists($dataFile . '.bak')) {
-                rename($dataFile, $dataFile . '.bak');
+                if (!@rename($dataFile, $dataFile . '.bak')) {
+                    // rename 失败（常见于跨挂载点），降级到 copy + unlink
+                    if (@copy($dataFile, $dataFile . '.bak')) {
+                        @unlink($dataFile);
+                    } else {
+                        throw new RuntimeException("无法备份 data.json 到 data.json.bak（权限或磁盘空间）");
+                    }
+                }
             }
         }
     }
@@ -368,9 +375,15 @@ function migrateJsonToSqlite() {
                 $stats['logs']++;
             }
 
-            // 备份旧文件
+            // 备份旧文件（M12：rename 跨设备失败回退到 copy + unlink）
             if (file_exists($logFile) && !file_exists($logFile . '.bak')) {
-                rename($logFile, $logFile . '.bak');
+                if (!@rename($logFile, $logFile . '.bak')) {
+                    if (@copy($logFile, $logFile . '.bak')) {
+                        @unlink($logFile);
+                    } else {
+                        throw new RuntimeException("无法备份 upload_log.json 到 .bak（权限或磁盘空间）");
+                    }
+                }
             }
         }
     }
