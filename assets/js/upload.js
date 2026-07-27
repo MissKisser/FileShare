@@ -1516,23 +1516,58 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!delBtn) return;
             e.preventDefault();
             const itemId = delBtn.getAttribute('data-id');
+            const hasPassword = delBtn.getAttribute('data-has-password') === '1';
             if (!itemId) return;
-            showCyberConfirm('确定要删除该文件吗？此操作不可撤销。', () => {
+
+            const doDelete = function(password, closeModal, errorMsg, pwdInput) {
                 const formData = new FormData();
                 formData.append('delete', itemId);
                 formData.append('csrf_token', window.FILESHARE_CSRF || document.querySelector('input[name="csrf_token"]')?.value || '');
+                if (password) {
+                    formData.append('access_password', password);
+                }
 
                 fetch(window.location.pathname, {
                     method: 'POST',
                     body: formData
                 })
-                .then(function() {
-                    refreshStorageList();
-                    showToast('删除成功', 'success');
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.success) {
+                        if (closeModal) closeModal();
+                        refreshStorageList();
+                        showToast(d.message || '删除成功', 'success');
+                    } else {
+                        // 密码错误时在弹窗内显示错误，不关闭弹窗
+                        if (errorMsg && pwdInput) {
+                            errorMsg.textContent = d.message || '密码错误';
+                            errorMsg.style.display = 'block';
+                            pwdInput.value = '';
+                            pwdInput.focus();
+                        } else {
+                            showToast(d.message || '删除失败', 'error');
+                        }
+                    }
                 })
                 .catch(function() {
-                    showToast('删除失败', 'error');
+                    if (errorMsg && pwdInput) {
+                        errorMsg.textContent = '请求失败，请重试';
+                        errorMsg.style.display = 'block';
+                        pwdInput.focus();
+                    } else {
+                        showToast('删除请求失败', 'error');
+                    }
                 });
+            };
+
+            showCyberConfirm('确定要删除该项目吗？此操作不可撤销。', function() {
+                if (hasPassword) {
+                    showPasswordModal('此内容已设置密码保护，需验证密码才能删除。', function(password, closeModal, errorMsg, pwdInput) {
+                        doDelete(password, closeModal, errorMsg, pwdInput);
+                    });
+                } else {
+                    doDelete(null, null, null, null);
+                }
             });
         });
     }
@@ -1838,11 +1873,6 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.body.appendChild(modal);
 
-        const modalEl = modal.querySelector('.cyber-modal');
-        modalEl.style.top = '50%';
-        modalEl.style.left = '50%';
-        modalEl.style.transform = 'translate(-50%, -50%)';
-
         requestAnimationFrame(() => {
             modal.classList.add('cyber-modal-show');
         });
@@ -1857,12 +1887,91 @@ document.addEventListener('DOMContentLoaded', function() {
 
         cancelBtn.addEventListener('click', closeModal);
         confirmBtn.addEventListener('click', () => {
-            closeModal();
+            // 先移除弹窗再回调，避免回调中创建的新弹窗被 existingModal 检查挡住
+            modal.remove();
             onConfirm();
         });
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeModal();
+        });
+
+        document.addEventListener('keydown', function escHandler(e) {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', escHandler);
+            }
+        });
+    };
+
+    // ========================================
+    // 密码输入弹窗（删除加密内容时使用）
+    // ========================================
+    window.showPasswordModal = function(message, onConfirm) {
+        const existingModal = document.querySelector('.cyber-modal-overlay');
+        if (existingModal) return;
+
+        const modal = document.createElement('div');
+        modal.className = 'cyber-modal-overlay';
+        modal.innerHTML = `
+            <div class="cyber-modal">
+                <div class="cyber-modal-header">
+                    <span class="modal-icon">🔒</span>
+                    <span class="modal-title">验证密码</span>
+                </div>
+                <div class="cyber-modal-body">
+                    <p style="margin:0 0 12px 0;color:var(--text-secondary)">${message}</p>
+                    <input type="password" class="delete-password-input" placeholder="请输入访问密码" autocomplete="off" autofocus>
+                    <p class="delete-password-error" style="display:none;margin:8px 0 0 0;color:var(--btn-danger);font-size:12px">密码错误，请重试</p>
+                </div>
+                <div class="cyber-modal-footer">
+                    <button class="cyber-btn cyber-btn-cancel" id="pwdCancelBtn">取消</button>
+                    <button class="cyber-btn cyber-btn-confirm" id="pwdConfirmBtn">确认删除</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        requestAnimationFrame(() => {
+            modal.classList.add('cyber-modal-show');
+            // 自动聚焦密码输入框
+            const input = modal.querySelector('.delete-password-input');
+            if (input) input.focus();
+        });
+
+        const closeModal = () => {
+            modal.classList.remove('cyber-modal-show');
+            setTimeout(() => modal.remove(), 300);
+        };
+
+        const cancelBtn = document.getElementById('pwdCancelBtn');
+        const confirmBtn = document.getElementById('pwdConfirmBtn');
+        const pwdInput = modal.querySelector('.delete-password-input');
+        const errorMsg = modal.querySelector('.delete-password-error');
+
+        cancelBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // 回车提交
+        pwdInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                confirmBtn.click();
+            }
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            const password = pwdInput.value;
+            if (!password) {
+                errorMsg.textContent = '请输入密码';
+                errorMsg.style.display = 'block';
+                pwdInput.focus();
+                return;
+            }
+            // 不关闭弹窗，让 onConfirm 回调决定：成功时调用 closeModal，失败时显示错误
+            onConfirm(password, closeModal, errorMsg, pwdInput);
         });
 
         document.addEventListener('keydown', function escHandler(e) {
@@ -1940,29 +2049,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     '<div class="item-actions">' +
                     '<a href="?download=' + item.id + '" class="btn-small btn-secondary">拉取</a>' +
                     '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
-                    '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
+                    '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '" data-has-password="' + (item.has_password ? '1' : '0') + '">移除</button>' +
                     '</div></div>';
 } else {
-                // 搜索结果中的文本项：不渲染 content/content_preview 到 DOM（会泄密），
+                // 搜索结果中的文本项：
+                // - 密码保护：显示遮蔽预览（前3字符+****），便于辨识
+                // - 未设密码：只显示标签，全文需从分享页查看
                 // "展开"/"复制"按钮统一跳转到 ?s=<share_code>，由分享页负责密码 gate + 内容渲染。
                 const shareUrl = '?s=' + encodeURIComponent(item.share_code);
                 const textLabel = item.has_password ? '文本片段 [密码保护]' : '文本片段';
+                const maskedPreview = (item.has_password && item.content_preview)
+                    ? '<pre class="text-preview-masked">' + escapeHtml(item.content_preview) + '</pre>'
+                    : '';
                 html += '<div class="item" data-id="' + item.id + '" data-share-code="' + item.share_code + '" data-type="text">' +
                     '<div class="item-select"><input type="checkbox" class="item-checkbox" data-id="' + item.id + '"></div>' +
                     '<div class="item-info">' +
                     '<div class="item-name">' + lockIcon +
-                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y1="13"/><line x1="16" y1="17" x2="8" y1="17"/></svg>' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' +
                     '文本片段</div>' +
                     '<div class="item-meta">入库: ' + item.time_formatted + ' • 剩余: ' + item.expire_formatted + downloadCount + '</div>' +
-                    '<div class="text-preview"><pre class="text-preview-label">' + textLabel + '</pre></div>' +
+                    '<div class="text-preview"><pre class="text-preview-label">' + textLabel + '</pre>' + maskedPreview + '</div>' +
                     '</div>' +
                     '<div class="item-actions">' +
                     '<a href="' + shareUrl + '" class="btn-small btn-secondary btn-view">展开</a>' +
                     '<a href="' + shareUrl + '" class="btn-small btn-secondary btn-copy">复制</a>' +
                     '<button class="btn-small btn-secondary btn-share" data-share-code="' + item.share_code + '">分享</button>' +
-                    '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '">移除</button>' +
+                    '<button class="btn-small btn-danger btn-delete" data-id="' + item.id + '" data-has-password="' + (item.has_password ? '1' : '0') + '">移除</button>' +
                     '</div></div>';
-            }
+                }
         });
 
         listEl.innerHTML = html;
@@ -2053,13 +2167,29 @@ document.addEventListener('DOMContentLoaded', function() {
             if (checked.length === 0) return;
 
             const ids = [];
-            checked.forEach(function(cb) { ids.push(cb.getAttribute('data-id')); });
+            const protectedIds = []; // 有密码的 item id
+            checked.forEach(function(cb) {
+                const id = cb.getAttribute('data-id');
+                ids.push(id);
+                // 查找对应 item 的 data-has-password
+                const itemEl = cb.closest('.item');
+                const delBtn = itemEl ? itemEl.querySelector('.btn-delete') : null;
+                if (delBtn && delBtn.getAttribute('data-has-password') === '1') {
+                    protectedIds.push(id);
+                }
+            });
 
-            window.showCyberConfirm('确认删除选中的 ' + ids.length + ' 个项目？', function() {
+            const doBatchDelete = function(password, closeModal, errorMsg, pwdInput) {
                 const formData = new FormData();
                 formData.append('action', 'batch_delete');
                 formData.append('csrf_token', window.FILESHARE_CSRF);
                 ids.forEach(function(id) { formData.append('ids[]', id); });
+                // 为加密项附带密码
+                if (password) {
+                    protectedIds.forEach(function(id) {
+                        formData.append('passwords[' + id + ']', password);
+                    });
+                }
 
                 fetch(window.location.pathname, {
                     method: 'POST',
@@ -2068,15 +2198,43 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.success) {
-                        showToast('成功删除 ' + data.deleted + ' 个项目', 'success');
+                        if (closeModal) closeModal();
+                        showToast(data.message || '删除成功', 'success');
                         refreshStorageList();
                     } else {
-                        showToast(data.message || '删除失败', 'error');
+                        // 密码错误时在弹窗内显示错误，不关闭弹窗
+                        if (errorMsg && pwdInput) {
+                            errorMsg.textContent = data.message || '密码错误';
+                            errorMsg.style.display = 'block';
+                            pwdInput.value = '';
+                            pwdInput.focus();
+                        } else {
+                            showToast(data.message || '删除失败', 'error');
+                        }
                     }
                 })
                 .catch(function() {
-                    showToast('删除请求失败', 'error');
+                    if (errorMsg && pwdInput) {
+                        errorMsg.textContent = '请求失败，请重试';
+                        errorMsg.style.display = 'block';
+                        pwdInput.focus();
+                    } else {
+                        showToast('删除请求失败', 'error');
+                    }
                 });
+            };
+
+            window.showCyberConfirm('确认删除选中的 ' + ids.length + ' 个项目？', function() {
+                if (protectedIds.length > 0) {
+                    showPasswordModal(
+                        '选中的 ' + ids.length + ' 个项目中有 ' + protectedIds.length + ' 个已设置密码保护，需输入密码才能删除。',
+                        function(password, closeModal, errorMsg, pwdInput) {
+                            doBatchDelete(password, closeModal, errorMsg, pwdInput);
+                        }
+                    );
+                } else {
+                    doBatchDelete(null, null, null, null);
+                }
             });
         });
     }
@@ -2231,42 +2389,6 @@ document.addEventListener('DOMContentLoaded', function() {
         html += '</div>';
         container.innerHTML = html;
     };
-
-    // ========================================
-    // 删除改为 AJAX 方式（不刷新页面）
-    // ========================================
-    document.addEventListener('click', function(e) {
-        var btn = e.target.closest('.btn-delete');
-        if (btn && !btn._deleteBound) {
-            btn._deleteBound = true;
-            e.preventDefault();
-            e.stopPropagation();
-
-            var id = btn.getAttribute('data-id');
-            if (!id) return;
-
-            window.showCyberConfirm('确认删除此项目？', function() {
-                var formData = new FormData();
-                formData.append('delete', id);
-                formData.append('csrf_token', window.FILESHARE_CSRF);
-
-                fetch(window.location.pathname, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function() {
-                    // 刷新列表
-                    refreshStorageList();
-                    showToast('删除成功', 'success');
-                })
-                .catch(function() {
-                    showToast('删除失败', 'error');
-                });
-            });
-
-            btn._deleteBound = false;
-        }
-    });
 
     // ========================================
     // 统计面板 — 已迁移至 ?api=stats，可被未来管理后台复用

@@ -557,9 +557,10 @@ function formatItemForApi($item) {
         'time_formatted' => date('Y-m-d H:i:s', $item['time'] ?? 0),
         'expire' => intval($item['expire'] ?? 0),
         'expire_formatted' => formatExpire($item['expire'] ?? 0),
-        // 受密码保护的文本不返回预览内容；元数据（has_password 等）保留
-        'content_preview' => ($item['type'] === 'text' && empty($item['password']))
-            ? mb_substr($item['content'] ?? '', 0, 200)
+        // 受密码保护的文本返回遮蔽预览（前3字符+****），便于辨识；
+        // 未设密码的文本最多给 200 字符 preview。
+        'content_preview' => ($item['type'] === 'text')
+            ? (!empty($item['password']) ? maskContent($item['content'] ?? '') : mb_substr($item['content'] ?? '', 0, 200))
             : null,
     ];
 }

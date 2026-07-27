@@ -353,16 +353,23 @@
                                     </div>
                                     <?php if ($item['type'] === 'text'): ?>
                                         <?php
-                                            // 首页不直接展示文本内容（哪怕是 preview）：
-                                            // - 密码保护的文本预览会泄密
-                                            // - 未设密码的全文也只能从分享页查看
-                                            // 这里只渲染一个静态标签，与 upload_logs.filename 约定一致。
-                                            $textLabel = !empty($item['has_password'])
-                                                ? '文本片段 [密码保护]'
-                                                : '文本片段';
+                                            // 密码保护的文本：显示遮蔽预览（前3字符+****），便于辨识是哪条内容；
+                                            // 未设密码的文本：首页仍只显示标签，全文需从分享页查看。
+                                            if (!empty($item['has_password'])) {
+                                                $textLabel = '文本片段 [密码保护]';
+                                                $textPreview = maskContent($item['content'] ?? '');
+                                            } else {
+                                                $textLabel = '文本片段';
+                                                $textPreview = null;
+                                            }
                                         ?>
                                         <div class="text-preview">
-                                            <pre class="text-preview-label"><?php echo htmlspecialchars($textLabel); ?></pre>
+                                            <?php if ($textPreview !== null): ?>
+                                                <pre class="text-preview-label"><?php echo htmlspecialchars($textLabel); ?></pre>
+                                                <pre class="text-preview-masked"><?php echo htmlspecialchars($textPreview); ?></pre>
+                                            <?php else: ?>
+                                                <pre class="text-preview-label"><?php echo htmlspecialchars($textLabel); ?></pre>
+                                            <?php endif; ?>
                                         </div>
                                     <?php endif; ?>
                                 </div>
@@ -392,7 +399,7 @@
                                         <a href="<?php echo $shareUrl; ?>" class="btn-small btn-secondary btn-copy">复制</a>
                                     <?php endif; ?>
                                     <button class="btn-small btn-secondary btn-share" data-share-code="<?php echo $item['share_code']; ?>">分享</button>
-                                    <button class="btn-small btn-danger btn-delete" data-id="<?php echo $item['id']; ?>">移除</button>
+                                    <button class="btn-small btn-danger btn-delete" data-id="<?php echo $item['id']; ?>" data-has-password="<?php echo !empty($item['has_password']) ? '1' : '0'; ?>">移除</button>
                                 </div>
                             </div>
                         <?php endforeach; ?>

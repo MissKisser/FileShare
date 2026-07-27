@@ -531,41 +531,55 @@ function handleTextSave() {
 // 删除处理
 // ============================================================
 function handleDelete() {
+    header('Content-Type: application/json; charset=utf-8');
+
     // 只接受POST请求
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
-        exit('Method Not Allowed');
-    }
-
-    // P0: 必须已登录 admin，否则返回 403（不再重定向到 PHP_SELF，避免 header 注入 + 区分未授权）
-    if (!isAdminLoggedIn()) {
-        http_response_code(403);
-        exit('Admin login required');
+        echo json_encode(['success' => false, 'message' => 'Method Not Allowed'], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     // CSRF Token验证
     $token = $_POST['csrf_token'] ?? '';
     if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
-        $_SESSION['message'] = '安全验证失败！';
-        header('Location: /admin/items');
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => '安全验证失败，请刷新页面重试'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
     $id = intval($_POST['delete'] ?? -1);
-    if ($id > 0) {
-        $item = getItemById($id);
-        if (!$item) {
-            $_SESSION['message'] = '项目不存在或已删除';
-        } elseif (deleteItemById($id)) {
-            // 审计日志：谁删了什么（admin_delete:<share_code>）
-            logAdminAction('delete', $id, $item['share_code'] ?? null, $item['type'] ?? null);
-            $_SESSION['message'] = '删除成功！';
-        } else {
-            $_SESSION['message'] = '删除失败';
+    if ($id <= 0) {
+        echo json_encode(['success' => false, 'message' => '参数无效'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $item = getItemById($id);
+    if (!$item) {
+        echo json_encode(['success' => false, 'message' => '项目不存在或已删除'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // 密码保护检查：有密码的 item 需要验证访问密码
+    if (!empty($item['password'])) {
+        $accessPassword = $_POST['access_password'] ?? '';
+        if ($accessPassword === '') {
+            echo json_encode(['success' => false, 'message' => '此内容已设置密码保护，需输入密码才能删除'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        if (!password_verify($accessPassword, $item['password'])) {
+            echo json_encode(['success' => false, 'message' => '密码错误'], JSON_UNESCAPED_UNICODE);
+            exit;
         }
     }
-    // 修：原代码用 $_SERVER['PHP_SELF'] 有 header 注入风险，改为固定路径
-    header('Location: /admin/items');
+
+    // 执行删除
+    if (deleteItemById($id)) {
+        logAdminAction('delete', $id, $item['share_code'] ?? null, $item['type'] ?? null);
+        echo json_encode(['success' => true, 'message' => '删除成功'], JSON_UNESCAPED_UNICODE);
+    } else {
+        echo json_encode(['success' => false, 'message' => '删除失败'], JSON_UNESCAPED_UNICODE);
+    }
     exit;
 }
 
@@ -574,13 +588,6 @@ function handleDelete() {
 // ============================================================
 function handleBatchDelete() {
     header('Content-Type: application/json; charset=utf-8');
-
-    // P0: 必须已登录 admin
-    if (!isAdminLoggedIn()) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'message' => 'Admin login required'], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
 
     // CSRF验证
     if (!validateCSRF()) {
@@ -593,7 +600,7 @@ function handleBatchDelete() {
     if (!is_array($ids)) {
         $ids = [$ids];
     }
-    // 规范化：去重 + 强制 int + 过滤无效（避免 enumeration 与 SQL 注入面；PHP 7.3 兼容写法）
+    // 规范化：去重 + 强制 int + 过滤无效
     $ids = array_map('intval', $ids);
     $ids = array_filter($ids, function($i) { return $i > 0; });
     $ids = array_values(array_unique($ids));
@@ -603,21 +610,77 @@ function handleBatchDelete() {
         exit;
     }
 
-    $result = batchDeleteItems($ids);
-
-    // 审计日志：每个成功删除的 item 单独记一条（便于回溯）
-    foreach ($result['deleted'] as $deletedId => $deletedCode) {
-        logAdminAction('batch_delete', (int)$deletedId, $deletedCode, null);
+    // 收集前端传来的密码（格式：passwords[<id>] = <password>）
+    $passwords = $_POST['passwords'] ?? [];
+    if (!is_array($passwords)) {
+        $passwords = [];
     }
 
-    // P1.5 修复：不返回 errors 详情（避免 ID enumeration 攻击）
+    // 分离：无需密码的 vs 需要密码验证的
+    $directDeleteIds = [];
+    $passwordRequiredIds = [];
+    $failedIds = [];
+
+    $db = getDB();
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $db->prepare("SELECT id, password FROM items WHERE id IN ($placeholders)");
+    $stmt->execute($ids);
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $itemMap = [];
+    foreach ($items as $item) {
+        $itemMap[(int)$item['id']] = $item;
+    }
+
+    foreach ($ids as $id) {
+        if (!isset($itemMap[$id])) {
+            // 项目不存在，跳过（不泄露信息）
+            continue;
+        }
+        $item = $itemMap[$id];
+        if (empty($item['password'])) {
+            // 无密码，直接可删
+            $directDeleteIds[] = $id;
+        } else {
+            // 有密码，需要验证
+            $pwd = $passwords[$id] ?? '';
+            if ($pwd !== '' && password_verify($pwd, $item['password'])) {
+                $directDeleteIds[] = $id; // 密码正确，加入可删列表
+            } else {
+                $failedIds[] = $id; // 密码缺失或错误
+            }
+        }
+    }
+
+    // 执行删除
+    $deletedCount = 0;
+    $deletedCodes = [];
+    if (!empty($directDeleteIds)) {
+        $result = batchDeleteItems($directDeleteIds);
+        $deletedCount = $result['deleted_count'];
+        $deletedCodes = $result['deleted'];
+        // 审计日志
+        foreach ($deletedCodes as $deletedId => $deletedCode) {
+            logAdminAction('batch_delete', (int)$deletedId, $deletedCode, null);
+        }
+    }
+
+    $message = '';
+    if ($deletedCount > 0 && count($failedIds) > 0) {
+        $message = "成功删除 {$deletedCount} 个项目，" . count($failedIds) . " 个加密项密码错误";
+    } elseif ($deletedCount > 0) {
+        $message = "成功删除 {$deletedCount} 个项目";
+    } elseif (count($failedIds) > 0) {
+        $message = '加密项密码验证失败，无法删除';
+    } else {
+        $message = '没有可删除的项目';
+    }
+
     echo json_encode([
-        'success' => $result['deleted_count'] > 0,
-        'message' => $result['deleted_count'] > 0
-            ? "成功删除 {$result['deleted_count']} 个项目"
-            : '没有可删除的项目（可能已被其他管理员删除）',
-        'deleted_count' => $result['deleted_count'],
-        'deleted_ids' => array_keys($result['deleted']),
+        'success' => $deletedCount > 0,
+        'message' => $message,
+        'deleted_count' => $deletedCount,
+        'failed_count' => count($failedIds),
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -1327,9 +1390,10 @@ function handleSearch() {
             'expire_formatted' => formatExpire($item['expire']),
             'download_count' => $item['download_count'],
             'has_password' => $hasPw,
-            // 受密码保护的文本绝不返回任何预览内容
-            'content_preview' => ($isText && !$hasPw)
-                ? mb_substr($item['content'] ?? '', 0, 150)
+            // 受密码保护的文本返回遮蔽预览（前3字符+****），便于辨识；
+            // 未设密码的文本最多给 150 字符 preview，供前端"展开"按钮按需使用。
+            'content_preview' => $isText
+                ? ($hasPw ? maskContent($item['content'] ?? '') : mb_substr($item['content'] ?? '', 0, 150))
                 : null,
         ];
     }

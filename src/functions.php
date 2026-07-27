@@ -696,7 +696,7 @@ function formatDuration($seconds) {
 
 /**
  * 掩码 IP 地址
- * 
+ *
  * @param string $ip
  * @return string
  */
@@ -706,6 +706,25 @@ function maskIP($ip) {
         return $parts[0] . '.' . $parts[1] . '.***.***';
     }
     return $ip;
+}
+
+/**
+ * 掩码受密码保护的文本内容
+ *
+ * 保留前 3 个字符用于辨识，其余替换为星号。
+ * - 长度 ≤ 3：全部显示（内容太短，遮蔽无意义）
+ * - 长度 > 3：前 3 字符 + "****"（固定 4 颗星，不暴露剩余长度）
+ *
+ * @param string $content 原始文本内容
+ * @return string 遮蔽后的文本
+ */
+function maskContent($content) {
+    $content = $content ?? '';
+    $len = mb_strlen($content);
+    if ($len <= 3) {
+        return $content;
+    }
+    return mb_substr($content, 0, 3) . '****';
 }
 
 /**

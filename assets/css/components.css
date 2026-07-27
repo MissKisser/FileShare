@@ -374,6 +374,18 @@ input[type="file"]::file-selector-button:hover {
     font-family: inherit;
 }
 
+.text-preview-label {
+    margin: 0;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.text-preview-masked {
+    margin: 4px 0 0 0;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+}
+
 .item-actions {
     display: flex;
     gap: 8px;
@@ -761,6 +773,30 @@ input[type="file"]::file-selector-button:hover {
 
 .cyber-btn-confirm:hover {
     background: var(--btn-danger-hover);
+}
+
+/* 删除密码输入框 */
+.delete-password-input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color var(--transition-fast);
+    box-sizing: border-box;
+}
+
+.delete-password-input:focus {
+    border-color: var(--accent-color);
+}
+
+.delete-password-error {
+    color: var(--btn-danger);
+    font-size: 12px;
+    margin: 8px 0 0 0;
 }
 
 /* ========================================
