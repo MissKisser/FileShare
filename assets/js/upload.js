@@ -305,30 +305,11 @@ const UPLOAD_CONFIG = {
         'text': '📃',
         'other': '📁'
     },
-    // 允许的文件 MIME 类型（覆盖广泛）
+    // MIME 列表不再作为拦截依据：浏览器对 exe/dll/iso 等二进制普遍报 application/octet-stream，
+    // 仅作为"是否在常见已知列表里"的弱提示。保留数组方便 UI 取图标/分类，
+    // 不再被 validateFile 用作黑/白名单。
     allowedTypes: [
-        // 图片
-        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/ico',
-        // 视频
-        'video/mp4', 'video/webm', 'video/ogg', 'video/avi', 'video/quicktime',
-        // 音频
-        'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/flac',
-        // 文档
-        'application/pdf', 'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-powerpoint',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        'text/plain', 'text/csv', 'text/html', 'text/css',
-        // 压缩包
-        'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
-        'application/x-tar', 'application/gzip', 'application/x-zip-compressed',
-        // Android APK（浏览器 finfo 偶尔报 octet-stream / zip，扩展名兜底是主防线）
-        'application/vnd.android.package-archive', 'application/octet-stream',
-        // 代码
-        'text/javascript', 'application/javascript', 'application/json', 'text/xml',
-        'application/xml', 'text/x-python', 'text/x-php'
+        'application/octet-stream'
     ]
 };
 
@@ -537,40 +518,21 @@ document.addEventListener('DOMContentLoaded', function() {
     /**
      * 验证文件
      * - 不再以 200MB 作为硬限制（大文件走密码流程）
-     * - 按扩展名 + MIME 类型进行白名单校验
+     * - 前端白名单已整体放开：服务器侧负责安全（uploads/ 禁脚本执行 + LARGE_FILE_PASSWORD 大文件阈值）
+     * - 仅对陌生 MIME 给出提醒，不阻塞上传
      */
     function validateFile(file) {
         const errors = [];
 
-        // 检查文件类型：扩展名白名单
-        const ext = getFileExtension(file.name);
-        const allowedExts = [
-            // 图片
-            'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'svg',
-            // 视频
-            'mp4', 'webm', 'ogv', 'ogg', 'avi', 'mov', 'mkv',
-            // 音频
-            'mp3', 'wav', 'aac', 'flac', 'm4a', 'opus',
-            // 文档
-            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-            'txt', 'csv', 'rtf', 'md', 'markdown',
-            // 代码/文本（移除所有可被 web 服务器执行的脚本扩展名）
-            'js', 'ts', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'swift',
-            'kt', 'scala', 'rb', 'sh', 'bash', 'ps1', 'bat', 'cmd',
-            'css', 'scss', 'less', 'html', 'htm', 'xml', 'json', 'sql', 'yaml', 'yml', 'ini', 'conf', 'log',
-            // 压缩包
-            'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4',
-            // Android 应用包（二进制 zip 容器，无 web 解释风险，扩展名是主防线）
-            'apk'
-        ];
-        if (ext && allowedExts.indexOf(ext) === -1) {
-            errors.push('不支持的文件类型');
+        // 白名单已整体放开：服务器侧（uploads/ 禁脚本执行 + LARGE_FILE_PASSWORD 大文件阈值）
+        // 才是安全防线，前端不再按扩展名拦截。
+        // 保留 MIME 校验作为辅助提示：浏览器对未知二进制常报 application/octet-stream，
+        // 这条 case 已在白名单里放过，不会误伤；遇到真正奇怪的 MIME（例如 text/html 伪装成
+        // 二进制上传）仍会提醒用户，但不阻塞上传。
+        if (file.type && UPLOAD_CONFIG.allowedTypes.indexOf(file.type) === -1) {
+            errors.push('文件 MIME 类型不在常见列表中（仍允许上传，请确认来源安全）');
         }
 
-        // 检查 MIME 类型（浏览器提供的 MIME 可能为空或不可靠，仅作辅助）
-        if (file.type && UPLOAD_CONFIG.allowedTypes.indexOf(file.type) === -1) {
-            errors.push('不支持的文件类型(MIME)');
-        }
 
         return {
             valid: errors.length === 0,

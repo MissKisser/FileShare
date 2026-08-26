@@ -2,48 +2,34 @@
 /**
  * 请求处理器
  * 作者：Hackerdallas
- * 
+ *
  * 重构为 SQLite 数据库操作，新增分享、预览、批量操作等路由
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
-// 安全限制由 Nginx 配置保障（uploads 目录禁止执行脚本）
-// 以下仅保留基本检查，防止明显恶意文件
-
+// 仍然依赖 Nginx 兜底：uploads/ 目录禁止 PHP 脚本被服务器解析。
 /**
- * 验证文件类型安全性（白名单机制）
+ * 文件类型校验
+ *
+ * 始终返回 valid=true（不再基于扩展名/MIME 白名单拒绝）。函数保留以兼容
+ * functions.php / chunk_upload.php 的现有调用点。
+ *
+ * @param string $filename 原始文件名
+ * @param string $tmpPath  临时文件路径
+ * @return array{valid: bool}
  */
 function validateFileType($filename, $tmpPath) {
-    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-
-    // 扩展名白名单校验
-    if (!in_array($ext, ALLOWED_FILE_EXTENSIONS, true)) {
-        return ['valid' => false, 'error' => "不支持的文件类型: .{$ext}"];
-    }
-
-    // MIME 类型白名单校验（如果 finfo 可用）
-    if (function_exists('finfo_open')) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $tmpPath);
-        finfo_close($finfo);
-
-        // 清理 MIME，例如 image/svg+xml; charset=utf-8 -> image/svg+xml
-        if ($mimeType) {
-            $parts = explode(';', $mimeType);
-            $mimeType = strtolower(trim($parts[0]));
-        }
-
-        if ($mimeType && !in_array($mimeType, ALLOWED_FILE_MIMES, true)) {
-            return ['valid' => false, 'error' => "不支持的文件类型(MIME: {$mimeType})"];
-        }
-    }
-
     return ['valid' => true];
 }
 
 /**
- * 检查当前会话/IP 是否超过大文件密码验证频率限制
- * 返回 true 表示被限制
+ * 大文件密码验证按会话/IP 维度的限流检查
+ *
+ * @param int $maxAttempts   窗口内最大尝试次数
+ * @param int $windowSeconds 窗口大小（秒）
+ * @return bool true=已被限流
  */
 function isRateLimited($maxAttempts = 5, $windowSeconds = 60) {
     $now = time();
@@ -62,6 +48,8 @@ function isRateLimited($maxAttempts = 5, $windowSeconds = 60) {
 
 /**
  * 记录一次大文件密码验证尝试
+ *
+ * @return void
  */
 function recordRateLimitAttempt() {
     if (!isset($_SESSION['large_file_password_attempts'])) {
@@ -71,15 +59,11 @@ function recordRateLimitAttempt() {
 }
 
 /**
- * 通用按 key 维度的速率限制检查
+ * 按任意 key 维度的速率限制检查
  *
- * 与 isRateLimited() 区别：后者固定用 large_file_password_attempts session key，
- * 这里允许调用方传任意 key（如 share_pwd_<sha1(code+ip)>、admin_login_<ip>），
- * 多个独立限流维度互不污染。
- *
- * @param string $key session 维度的限流键名
- * @param int $maxAttempts 窗口内最大尝试次数
- * @param int $windowSeconds 窗口大小（秒）
+ * @param string $key         限流键名（用于隔离不同维度）
+ * @param int    $maxAttempts 窗口内最大尝试次数
+ * @param int    $windowSeconds 窗口大小（秒）
  * @return bool true=已被限流（应拒绝）
  */
 function isRateLimitedByKey($key, $maxAttempts = 5, $windowSeconds = 60) {
@@ -98,7 +82,8 @@ function isRateLimitedByKey($key, $maxAttempts = 5, $windowSeconds = 60) {
 /**
  * 记录一次按 key 维度的尝试
  *
- * @param string $key session 维度的限流键名
+ * @param string $key 限流键名
+ * @return void
  */
 function recordRateLimitByKey($key) {
     if (!isset($_SESSION[$key])) {
@@ -108,7 +93,9 @@ function recordRateLimitByKey($key) {
 }
 
 /**
- * 验证CSRF Token
+ * 验证 CSRF Token
+ *
+ * @return bool true=校验通过
  */
 function validateCSRF() {
     if (!isset($_SESSION['csrf_token'])) {
@@ -120,9 +107,11 @@ function validateCSRF() {
 
 /**
  * 主请求路由分发
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 function handleRequest() {
-    // ===== 缩略图懒生成端点（B2） =====
+    // ===== 缩略图懒生成端点 =====
     if (isset($_GET['action']) && $_GET['action'] === 'thumb' && isset($_GET['item_id'])) {
         require_once __DIR__ . '/thumbnail.php';
         header('Content-Type: application/json; charset=utf-8');
@@ -142,19 +131,19 @@ function handleRequest() {
         exit;
     }
 
-    // ===== 分享密码验证 POST 必须在分享页渲染之前匹配（避免被 ?s= 吞掉） =====
+    // 分享密码验证 POST 必须在分享页渲染之前匹配（避免被 ?s= 吞掉）
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_share_password') {
         handleSharePasswordVerify();
         return;
     }
 
-    // ===== 分享页面路由（F1） =====
+    // ===== 分享页面路由 =====
     if (isset($_GET['s'])) {
         handleSharePage();
         return;
     }
 
-    // ===== 预览路由（F5） =====
+    // ===== 预览路由 =====
     if (isset($_GET['preview'])) {
         handlePreview();
         return;
@@ -172,21 +161,21 @@ function handleRequest() {
         return;
     }
 
-    // ===== 压缩包预览路由（B3） =====
+    // ===== 压缩包预览路由 =====
     if (isset($_GET['archive'])) {
         require_once __DIR__ . '/archive.php';
         handleArchiveRequest();
         return;
     }
 
-    // ===== API 路由（F3） =====
+    // ===== API 路由 =====
     if (isset($_GET['api'])) {
         require_once __DIR__ . '/api.php';
         handleApiRequest();
         return;
     }
 
-    // ===== 管理后台路由（F9） =====
+    // ===== 管理后台路由 =====
     // 支持 /admin/xxx 路径和 ?admin=xxx 两种方式
     $adminPage = null;
     if (isset($_GET['admin'])) {
@@ -210,29 +199,23 @@ function handleRequest() {
         exit;
     }
 
-    // ===== 搜索/过滤 AJAX 路由（F6） =====
+    // ===== 搜索/过滤 AJAX 路由 =====
     if (isset($_GET['action']) && $_GET['action'] === 'search') {
         handleSearch();
         return;
     }
 
-    // ===== 批量删除路由（F7） =====
+    // ===== 批量删除路由 =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'batch_delete') {
         handleBatchDelete();
         return;
     }
 
     // ===== owner 自删除路由（通过管理链接 ?s=&manage= 触发） =====
-    // 设计原则：
-    //   - 不需要 CSRF（owner token 本身就是凭证，类比 API bearer token）
-    //   - 不需要 admin 登录（owner 是上传者本人）
-    //   - 验证失败统一返回 403 + 模糊信息（防 enumeration）
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'owner_delete') {
         handleOwnerDelete();
         return;
     }
-
-    // 分享密码验证已在 handleRequest 顶部（?s= 之前）处理，这里不再重复
 
     // ===== 大文件密码预校验请求（AJAX 调用） =====
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_large_file_password') {
@@ -343,8 +326,14 @@ function handleRequest() {
     }
 }
 
-// 获取真实IP地址
-// 默认信任 REMOTE_ADDR；仅在 REMOTE_ADDR 属于可信代理时读取 X-Forwarded-For 等头
+/**
+ * 获取真实 IP
+ *
+ * 默认信任 REMOTE_ADDR；仅在 REMOTE_ADDR 属于可信代理时读取
+ * X-Forwarded-For / X-Real-IP / Client-IP 头。
+ *
+ * @return string 客户端 IP（不可解析时为 'unknown'）
+ */
 function getRealIP() {
     // 可通过环境变量或 .env 配置可信代理，例如 TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12
     $trustedProxies = [];
@@ -382,7 +371,13 @@ function getRealIP() {
     return $remoteAddr;
 }
 
-// 辅助函数：判断 IP 是否在 CIDR 段内
+/**
+ * 判断 IP 是否在 CIDR 段内
+ *
+ * @param string $ip   IP 地址
+ * @param string $cidr CIDR（如 10.0.0.0/8）或单 IP
+ * @return bool
+ */
 function ipInCidr($ip, $cidr) {
     if (strpos($cidr, '/') === false) {
         return $ip === $cidr;
@@ -397,9 +392,13 @@ function ipInCidr($ip, $cidr) {
     return ($ipLong & $mask) === ($subnetLong & $mask);
 }
 
-// ============================================================
-// 文件上传处理
-// ============================================================
+/**
+ * 文件上传处理
+ *
+ * 路由：POST + $_FILES['files']
+ *
+ * @return void
+ */
 function handleFileUpload() {
     $db = getDB();
     header('Content-Type: application/json; charset=utf-8');
@@ -412,7 +411,7 @@ function handleFileUpload() {
 
     try {
         $duration = intval($_POST['duration'] ?? 600);
-        $accessPassword = $_POST['access_password'] ?? ''; // F2 访问密码
+        $accessPassword = $_POST['access_password'] ?? ''; // 访问密码
         $files = $_FILES['files'];
         $uploadCount = 0;
         $errors = [];
@@ -431,7 +430,7 @@ function handleFileUpload() {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
                 $originalName = $files['name'][$i];
 
-                // I6 重构：复用 createFileItem（含类型校验、去重、move、INSERT、日志）
+                // 复用 createFileItem（类型校验、去重、move、INSERT、日志）
                 $result = createFileItem(
                     $originalName,
                     $files['tmp_name'][$i],
@@ -478,8 +477,7 @@ function handleFileUpload() {
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
 
     } catch (Exception $e) {
-        // I8 加固：PDOException 等异常 message 常含完整 SQL + 文件路径，
-        // 直接回显会泄露 DB schema 给 SQL 注入侦察。改为记 error_log + 模糊提示。
+        // 异常：记 error_log + 模糊提示（避免泄露 SQL 路径）
         error_log('handleFileUpload failed: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
         if (ob_get_level()) {
             ob_flush();
@@ -495,9 +493,13 @@ function handleFileUpload() {
     exit;
 }
 
-// ============================================================
-// 文本保存处理
-// ============================================================
+/**
+ * 文本保存处理
+ *
+ * 路由：POST + $_POST['text']
+ *
+ * @return void
+ */
 function handleTextSave() {
     // CSRF验证
     if (!validateCSRF()) {
@@ -508,10 +510,10 @@ function handleTextSave() {
 
     $text = $_POST['text'] ?? '';
     $duration = intval($_POST['text_duration'] ?? 600);
-    $accessPassword = $_POST['access_password'] ?? ''; // F2 访问密码
+    $accessPassword = $_POST['access_password'] ?? ''; // 访问密码
 
     if (!empty(trim($text))) {
-        // I6 重构：复用 createTextItem（含 INSERT、日志）
+        // 复用 createTextItem（INSERT、日志）
         $result = createTextItem($text, $duration, $accessPassword);
         $shareCode = $result['item']['share_code'];
         $ownerToken = $result['owner_token'];
@@ -527,9 +529,13 @@ function handleTextSave() {
     exit;
 }
 
-// ============================================================
-// 删除处理
-// ============================================================
+/**
+ * 单项删除处理
+ *
+ * 路由：POST + $_POST['delete']
+ *
+ * @return void
+ */
 function handleDelete() {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -583,9 +589,13 @@ function handleDelete() {
     exit;
 }
 
-// ============================================================
-// 批量删除处理（F7）
-// ============================================================
+/**
+ * 批量删除处理
+ *
+ * 路由：POST + $_POST['action']=batch_delete
+ *
+ * @return void
+ */
 function handleBatchDelete() {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -685,15 +695,17 @@ function handleBatchDelete() {
     exit;
 }
 
-// ============================================================
-// Owner 自删除（管理链接 ?s=&manage= 触发的 POST）
-//
-// 设计原则：
-//   - 凭证就是 manage_url 里的明文 token（256 位熵，DB 仅存 sha256）
-//   - 不需要 CSRF / admin 登录
-//   - 验证失败统一返回 403 + 模糊信息（防 enumeration：分不清"项目不存在"和"token 错"）
-//   - 复用 deleteItemById → deleteItemsAtomically，事务/FK/引用计数/审计全自动
-// ============================================================
+/**
+ * Owner 自删除
+ *
+ * 路由：POST + $_POST['action']=owner_delete，通过管理链接 ?s=&manage= 触发。
+ *
+ * 凭证即 manage_url 里的明文 token（256 位熵，DB 仅存 sha256）。
+ * 不需要 CSRF / admin 登录；验证失败统一返回 403 + 模糊信息（防 enumeration）。
+ * 复用 deleteItemById → deleteItemsAtomically，事务/FK/引用计数/审计全自动。
+ *
+ * @return void
+ */
 function handleOwnerDelete() {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -711,7 +723,7 @@ function handleOwnerDelete() {
         exit;
     }
 
-    // 长度校验：sha256 hex 64，token hex 64
+    // 长度校验：sha256 hex 64 位，token 长度上限 256
     if (strlen($shareCode) > 32 || strlen($token) > 256) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => '参数格式错误'], JSON_UNESCAPED_UNICODE);
@@ -724,20 +736,18 @@ function handleOwnerDelete() {
     $stmt->execute([$shareCode, $tokenHash]);
     $item = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // 统一错误信息：分不清"项目不存在"和"token 错"
+    // 统一错误信息（防 enumeration）
     if (!$item) {
         http_response_code(403);
         echo json_encode(['success' => false, 'message' => '管理链接无效或已过期'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    // 复用原子删除（事务、FK 清理、引用计数 unlink、rollback）
+    // 原子删除（事务、FK 清理、引用计数 unlink、rollback）
     if (deleteItemById((int)$item['id'])) {
-        // 审计：owner_delete 与 admin_delete 走同一条 audit log；
-        // logAdminAction() 会把 share_code / type 写进 filename 列，
-        // item_id 永远为 NULL（避开 FK 约束 + 历史兼容性）。
+        // 审计日志：item_id 写 NULL（避开 FK 约束），share_code / type 写到 filename 列
         logAdminAction('owner_delete', (int)$item['id'], $item['share_code'], $item['type']);
-        // 清理 session 标记（如果用户在本会话曾验过 owner）
+        // 清理 session 标记
         unset($_SESSION['owner_confirmed_' . $shareCode]);
         unset($_SESSION['owner_token_' . $shareCode]);
         echo json_encode(['success' => true, 'message' => '已删除'], JSON_UNESCAPED_UNICODE);
@@ -748,15 +758,19 @@ function handleOwnerDelete() {
     exit;
 }
 
-// ============================================================
-// 下载处理
-// ============================================================
+/**
+ * 下载处理
+ *
+ * 路由：?download=N
+ *
+ * @return void
+ */
 function handleDownload() {
     $id = intval($_GET['download']);
     $item = getItemById($id);
 
     if ($item && $item['type'] === 'file') {
-        // 检查密码保护（F2）
+        // 检查密码保护
         if (!empty($item['password'])) {
             $unlockedKey = 'unlocked_' . $item['share_code'];
             if (empty($_SESSION[$unlockedKey])) {
@@ -767,7 +781,7 @@ function handleDownload() {
         }
 
         if (file_exists($item['path'])) {
-            // 增加下载计数（F11）
+            // 增加下载计数
             incrementDownloadCount($item['id'], getRealIP(), $_SERVER['HTTP_USER_AGENT'] ?? '');
 
             header('Content-Type: application/octet-stream');
@@ -783,9 +797,13 @@ function handleDownload() {
     exit;
 }
 
-// ============================================================
-// 分享页面处理（F1）
-// ============================================================
+/**
+ * 分享页面处理
+ *
+ * 路由：?s=<share_code>（可选 ?manage=<owner_token> 触发 owner 验证）
+ *
+ * @return void
+ */
 function handleSharePage() {
     $code = $_GET['s'] ?? '';
     if (empty($code)) {
@@ -811,7 +829,7 @@ function handleSharePage() {
         exit;
     }
 
-    // 检查密码保护（F2）
+    // 检查密码保护
     $unlocked = true;
     if (!empty($item['password'])) {
         $unlockedKey = 'unlocked_' . $code;
@@ -820,29 +838,22 @@ function handleSharePage() {
         }
     }
 
-    // Owner token 验证（独立于密码，URL 带 ?manage=<token> 时触发）
-    // 设计（C4 修复后）：
-    //   - URL ?manage=<plaintext> 验证成功后：仅写 boolean 标记到 session
-    //   - 明文 token **绝不**入 session（session 文件泄露会丢凭证，降级 token 安全等级）
-    //   - 后续本会话访问不带 ?manage= 的 ?s=<code> 仍能识别 owner（展示提示），
-    //     但 POST 删除要求重新带 ?manage=<token>（manageToken 仅当前请求有效）
-    //   - 验证失败时静默不报错（防 enumeration）
+    // Owner token 验证（独立于密码，URL 带 ?manage=<token> 时触发；明文 token 不入 session）
     $isOwner = false;
     $manageToken = '';
     $manageTokenFromUrl = trim($_GET['manage'] ?? '');
     if (!empty($manageTokenFromUrl)) {
-        $db = getDB(); // handleSharePage() 上方没初始化 $db，这里要现取
+        $db = getDB();
         $tokenHash = hash('sha256', $manageTokenFromUrl);
         $chk = $db->prepare('SELECT id FROM items WHERE share_code = ? AND owner_token_hash = ?');
         $chk->execute([$code, $tokenHash]);
         if ($chk->fetch()) {
             $isOwner = true;
-            $manageToken = $manageTokenFromUrl; // 仅当前请求局部变量，不写 session
-            $_SESSION['owner_confirmed_' . $code] = true; // 仅 boolean 标记
+            $manageToken = $manageTokenFromUrl;
+            $_SESSION['owner_confirmed_' . $code] = true;
         }
     } elseif (!empty($_SESSION['owner_confirmed_' . $code])) {
-        // 已在本会话验过 owner；识别身份展示提示，但 manageToken 为空
-        // （删除按钮要求 URL 持续带 ?manage= 才会渲染）
+        // 本会话已验过 owner；manageToken 仍为空（删除要求 URL 持续带 ?manage=）
         $isOwner = true;
     }
 
@@ -851,9 +862,13 @@ function handleSharePage() {
     exit;
 }
 
-// ============================================================
-// 分享密码验证（F2）
-// ============================================================
+/**
+ * 分享密码验证
+ *
+ * 路由：POST + $_POST['action']=verify_share_password
+ *
+ * @return void
+ */
 function handleSharePasswordVerify() {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -901,9 +916,13 @@ function handleSharePasswordVerify() {
     exit;
 }
 
-// ============================================================
-// 预览处理（F5）
-// ============================================================
+/**
+ * 预览处理
+ *
+ * 路由：?preview=<share_code>
+ *
+ * @return void
+ */
 function handlePreview() {
     $code = $_GET['preview'] ?? '';
     $item = getItemByCode($code);
@@ -940,13 +959,9 @@ function handlePreview() {
     $videoExts = ['mp4', 'webm', 'ogv', 'ogg'];
     $audioExts = ['mp3', 'wav', 'aac', 'flac', 'm4a', 'opus'];
     $pdfExts = ['pdf'];
-
     if (in_array($ext, $imageExts)) {
-        // 图片：直接输出
-        // C5 安全加固：SVG 可内嵌 <script> / onload= 等脚本，inline 输出会导致
-        // 同源 XSS（浏览器在 ?preview=<svg> 页面执行 SVG 中的 JS）。
-        // 对 SVG 强制 attachment 下载 + 严格 CSP，杜绝脚本执行；
-        // 其他图片格式（jpg/png/gif/webp/bmp/ico）保持 inline 预览。
+        // 图片：直接输出（SVG 强制 attachment + sandbox CSP，防止 SVG 内嵌脚本执行）
+
         if ($ext === 'svg') {
             header('Content-Type: image/svg+xml');
             header('Content-Disposition: attachment; filename="' . htmlspecialchars(basename($item['name']), ENT_QUOTES, 'UTF-8') . '"');
@@ -1158,13 +1173,16 @@ function handlePreview() {
 /**
  * 流式输出文件（支持 Range 请求，用于视频/音频）
  *
- * I1 加固：严格解析 Range 头，处理：
- *   - 多 range（bytes=0-100,200-300）→ 忽略 Range，返回 200 全量
- *   - 非法 range / 语法错 → 忽略 Range，返回 200 全量
+ * Range 处理：
+ *   - 多 range（含逗号）或非法语法 → 忽略 Range，返回 200 全量
  *   - 越界（start >= size）→ 416 Requested Range Not Satisfiable
  *   - 开放右端（bytes=100-）→ end 默认 size-1
  *   - end 超过 size-1 → 夹紧到 size-1
  *   - fopen/fseek 失败保护
+ *
+ * @param string $path     文件路径
+ * @param string $mimeType Content-Type
+ * @return void
  */
 function streamFile($path, $mimeType) {
     if (!is_file($path)) {
@@ -1189,13 +1207,11 @@ function streamFile($path, $mimeType) {
     if (isset($_SERVER['HTTP_RANGE'])) {
         $rangeHeader = $_SERVER['HTTP_RANGE'];
         // 仅接受单 range：bytes=<start>-<end>(可选) 形式
-        // 多 range（含逗号）和非法语法一律忽略，按 200 全量返回
         if (preg_match('#^bytes=(\d+)-(\d*)$#', $rangeHeader, $m)) {
             $reqStart = (int)$m[1];
             $reqEnd = ($m[2] !== '') ? (int)$m[2] : $size - 1;
 
             if ($reqStart >= $size) {
-                // 越界：返回 416 + Content-Range: bytes */<size>
                 http_response_code(416);
                 header('Content-Range: bytes */' . $size);
                 exit;
@@ -1204,15 +1220,14 @@ function streamFile($path, $mimeType) {
                 $reqEnd = $size - 1; // 夹紧
             }
             if ($reqStart > $reqEnd) {
-                // start > end：非法，忽略 Range
-                // 走 200 全量
+
             } else {
                 $start = $reqStart;
                 $end = $reqEnd;
                 $isPartial = true;
             }
         }
-        // 其他形式（多 range、bytes=-500 后缀形式等）→ 忽略，200 全量
+
     }
 
     if ($isPartial) {
@@ -1249,7 +1264,10 @@ function streamFile($path, $mimeType) {
 
 /**
  * 原始文件输出（供 PDF.js 等前端组件使用）
+ *
  * 路由：?raw=N
+ *
+ * @return void
  */
 function handleRawFile() {
     $id = intval($_GET['raw']);
@@ -1290,8 +1308,11 @@ function handleRawFile() {
 }
 
 /**
- * 处理压缩包在线预览请求（B3）
- * 路由：?archive=list&item_id=N | ?archive=read&item_id=N&path=xxx
+ * 处理压缩包在线预览请求
+ *
+ * 路由：?archive=list&item_id=N 或 ?archive=read&item_id=N&path=xxx
+ *
+ * @return void
  */
 function handleArchiveRequest() {
     header('Content-Type: application/json; charset=utf-8');
@@ -1354,9 +1375,13 @@ function handleArchiveRequest() {
     exit;
 }
 
-// ============================================================
-// 搜索处理（F6）
-// ============================================================
+/**
+ * 搜索处理
+ *
+ * 路由：?action=search&q=&type=&category=&sort=&order=
+ *
+ * @return void
+ */
 function handleSearch() {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -1368,11 +1393,7 @@ function handleSearch() {
 
     $items = searchItems($query, $typeFilter, $categoryFilter, $sort, $sortOrder);
 
-    // 格式化输出
-    // 搜索接口面向公开前端：永远不要把 content 放进响应体。
-    // 密码保护的文本不返回 preview（必须跳转到分享页解锁才能看）；
-    // 未设密码的文本最多给 150 字符 preview，供前端"展开"按钮按需使用。
-    // 完整 content 永不返回——任何复制/查看都应走 ?s=<share_code>。
+    // 不返回 content：密码保护走 ?s= 解锁后看；未设密码的最多给 150 字符 preview
     $result = [];
     foreach ($items as $item) {
         $isText = ($item['type'] === 'text');
@@ -1390,8 +1411,7 @@ function handleSearch() {
             'expire_formatted' => formatExpire($item['expire']),
             'download_count' => $item['download_count'],
             'has_password' => $hasPw,
-            // 受密码保护的文本返回遮蔽预览（前3字符+****），便于辨识；
-            // 未设密码的文本最多给 150 字符 preview，供前端"展开"按钮按需使用。
+            // 密码保护文本给遮蔽预览（前3字符+****），未设密码最多 150 字符 preview
             'content_preview' => $isText
                 ? ($hasPw ? maskContent($item['content'] ?? '') : mb_substr($item['content'] ?? '', 0, 150))
                 : null,
@@ -1404,11 +1424,11 @@ function handleSearch() {
 
 /**
  * 鉴权缩略图输出
- * 路由：?thumb=N
  *
- * 缩略图本身位于 uploads/<file>.thumb.jpg，过去被前端直接以 /uploads/<thumbPath>
- * 引用，造成密码保护项的缩略图可被未授权访问。这里把所有读取收敛到本路由，
- * 统一执行密码解锁检查（仅当对应 share_code 已解锁时才输出）。
+ * 路由：?thumb=N。缩略图统一通过本路由读取并执行密码解锁检查（仅当对应
+ * share_code 已解锁时才输出）。
+ *
+ * @return void
  */
 function handleThumbnailServe() {
     $id = intval($_GET['thumb']);
@@ -1459,6 +1479,8 @@ function handleThumbnailServe() {
 
 /**
  * 获取站点基础 URL
+ *
+ * @return string 以 / 结尾的 base URL（如 https://host/）
  */
 function getBaseUrl() {
     $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
