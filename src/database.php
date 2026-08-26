@@ -1,9 +1,11 @@
 <?php
 /**
  * SQLite 数据库管理
+ *
  * 作者：Hackerdallas
- * 
- * 提供 SQLite 连接单例、建表初始化、JSON 数据迁移
+ *
+ * 提供 SQLite 连接单例、建表初始化、JSON 数据迁移。
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -30,10 +32,9 @@ function getDB() {
     }
     return $db;
 }
-
 /**
  * 初始化数据库表结构
- * 
+ *
  * @param PDO $db
  */
 function initDB($db) {
@@ -61,15 +62,7 @@ function initDB($db) {
             download_count  INTEGER DEFAULT 0,
             ip              TEXT    NOT NULL,
             user_agent      TEXT,
-            time            INTEGER NOT NULL,
-            expire          INTEGER NOT NULL DEFAULT 0,
             duration        INTEGER NOT NULL DEFAULT 600,
-            -- M9: 原 created_at DATETIME DEFAULT CURRENT_TIMESTAMP 列从未被读取，已移除。
-            -- 老库通过增量迁移保留该列（SQLite 不支持 ALTER DROP COLUMN），新库不再声明。
-            -- 业务时间字段统一用 time (INTEGER Unix 时间戳)。
-            -- owner 凭证：存 sha256(owner_token) 而不是明文。owner_token 是创建者收到的
-            -- 管理链接 ?s=<code>&manage=<token> 里的明文 token，DB 泄露不丢凭证。
-            -- 老数据此列为 NULL，admin 删除依然工作，owner 端只能删了重建。
             owner_token_hash TEXT
         );
 
@@ -135,9 +128,7 @@ function initDB($db) {
         );
     ");
 
-    // 插入默认设置（仅基础 3 列 — 元数据 label/description/category/control_type/sort_order
-    // 由 runIncrementalMigrations() 通过 ALTER TABLE ADD COLUMN + UPDATE 统一回填，
-    // 避免"INSERT 引用了尚不存在的列"导致全新部署启动崩溃。）
+    // 插入默认设置（基础 3 列；元数据列由增量迁移补齐）
     $now = time();
     $defaults = [
         ['site_title', '文件上传与文本存储系统'],
@@ -159,7 +150,9 @@ function initDB($db) {
 }
 
 /**
- * 增量迁移：幂等添加新字段
+ * 增量迁移：幂等添加新字段并回填元数据
+ *
+ * @param PDO $db
  */
 function runIncrementalMigrations($db) {
     $logCols = array_column(
@@ -188,8 +181,6 @@ function runIncrementalMigrations($db) {
     }
     if (!in_array('owner_token_hash', $itemCols)) {
         $db->exec("ALTER TABLE items ADD COLUMN owner_token_hash TEXT");
-        // 部分唯一索引（SQLite 支持 WHERE 子句）：允许历史 NULL 行共存，
-        // 同时让 sha256(token) 查询走索引。新创建的行必填。
         $db->exec("CREATE UNIQUE INDEX idx_owner_token_hash ON items(owner_token_hash) WHERE owner_token_hash IS NOT NULL");
     }
 
@@ -263,15 +254,11 @@ function generateShareCode($db) {
 /**
  * 生成 owner 管理 token（明文）
  *
- * 与 generateShareCode 的区别：
- *   - share_code 是公共分享凭证（URL 里出现），8 字符 32 位熵勉强够用；
- *   - owner_token 是删除凭证，**必须**不可猜；64 字符 256 位熵。
- *   - 返回的是**明文 token**（用于放进创建响应里的 manage_url），
- *     DB 实际存的是 sha256(token)。模型与 api_tokens.token_hash 完全一致。
+ * 返回明文 token；DB 仅存 sha256(token)。256 位熵。
  *
  * @param PDO $db
  * @return string 64 字符十六进制明文 token
- * @throws RuntimeException 撞库超过 5 次（极不可能）
+ * @throws RuntimeException 撞库超过 5 次
  */
 function generateOwnerToken($db) {
     $maxAttempts = 5;
@@ -284,7 +271,6 @@ function generateOwnerToken($db) {
             return $token;
         }
     }
-    // 256 位熵撞库概率 2^-256，5 次连续碰撞视为异常
     throw new RuntimeException('Failed to generate unique owner_token after 5 attempts');
 }
 
@@ -334,10 +320,9 @@ function migrateJsonToSqlite() {
                 $stats['items']++;
             }
 
-            // 备份旧文件（M12：rename 跨设备失败回退到 copy + unlink）
+            // 备份旧文件；rename 失败时降级 copy + unlink
             if (file_exists($dataFile) && !file_exists($dataFile . '.bak')) {
                 if (!@rename($dataFile, $dataFile . '.bak')) {
-                    // rename 失败（常见于跨挂载点），降级到 copy + unlink
                     if (@copy($dataFile, $dataFile . '.bak')) {
                         @unlink($dataFile);
                     } else {
@@ -375,7 +360,7 @@ function migrateJsonToSqlite() {
                 $stats['logs']++;
             }
 
-            // 备份旧文件（M12：rename 跨设备失败回退到 copy + unlink）
+            // 备份旧文件；rename 失败时降级 copy + unlink
             if (file_exists($logFile) && !file_exists($logFile . '.bak')) {
                 if (!@rename($logFile, $logFile . '.bak')) {
                     if (@copy($logFile, $logFile . '.bak')) {

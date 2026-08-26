@@ -1,15 +1,10 @@
 <?php
 /**
  * 缩略图生成
+ *
  * 作者：FileShare Contributors
  *
- * - 图片：使用 GD 或 Imagick
- * - 视频：使用 ffmpeg（可选依赖，未安装时返回 failed 状态）
- *
- * thumbnail_path 三态：
- *   NULL 或 ''          → 未尝试生成
- *   'failed:<reason>'   → 已尝试但失败
- *   '<相对路径>'        → 已生成（相对 uploads/）
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -18,6 +13,8 @@ define('THUMBNAIL_MAX_SIZE', intval(loadEnvVar('THUMBNAIL_MAX_SIZE', '320')));
 
 /**
  * 检测 ffmpeg 是否可用
+ *
+ * @return bool
  */
 function isFfmpegAvailable() {
     if (!function_exists('shell_exec')) {
@@ -29,6 +26,10 @@ function isFfmpegAvailable() {
 
 /**
  * 生成图片缩略图
+ *
+ * @param string $sourcePath 源图片绝对路径
+ * @param string $itemName 用于提取扩展名的文件名
+ * @return string|false 成功返回缩略图绝对路径，失败返回 false
  */
 function generateImageThumbnail($sourcePath, $itemName) {
     if (!file_exists($sourcePath)) {
@@ -114,6 +115,9 @@ function generateImageThumbnail($sourcePath, $itemName) {
 
 /**
  * 生成视频缩略图（ffmpeg）
+ *
+ * @param string $sourcePath 源视频绝对路径
+ * @return string|false 成功返回缩略图绝对路径，ffmpeg 不可用或执行失败返回 false
  */
 function generateVideoThumbnail($sourcePath) {
     if (!file_exists($sourcePath)) {
@@ -142,6 +146,9 @@ function generateVideoThumbnail($sourcePath) {
 
 /**
  * 为项目生成缩略图，更新数据库 thumbnail_path
+ *
+ * @param int $itemId 项目 ID
+ * @return string 缩略图相对路径（basename）或 'failed:<reason>'
  */
 function generateItemThumbnail($itemId) {
     $db = getDB();
@@ -183,6 +190,7 @@ function generateItemThumbnail($itemId) {
 /**
  * 检查缩略图状态
  *
+ * @param string|null $thumbnailPath 数据库中存储的缩略图字段值
  * @return string 'none' | 'failed' | 'ready'
  */
 function getThumbnailStatus($thumbnailPath) {

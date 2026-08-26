@@ -1,12 +1,15 @@
 <?php
 /**
  * 分片上传管理
+ *
  * 作者：FileShare Contributors
  *
- * 3 个端点：
+ * 端点：
  *   POST ?api=upload/init   - 创建/恢复会话
  *   POST ?api=upload/chunk  - 接收单个分片
  *   POST ?api=upload/merge  - 合并所有分片
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md §1.3（分片上传加固）
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -19,7 +22,9 @@ if (!is_dir(CHUNK_DIR)) {
 }
 
 /**
- * 初始化/恢复上传会话
+ * 创建或恢复上传会话
+ *
+ * @return void 直接通过 apiResponse/apiError 输出
  */
 function handleChunkInit() {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -43,7 +48,7 @@ function handleChunkInit() {
         apiError('参数不完整', 400);
     }
 
-    // 大文件密码校验
+    // 超过普通上限需要大文件密码；超过授权上限直接拒绝
     if ($fileSize > MAX_FILE_SIZE_NORMAL) {
         if (!verifyLargeFilePassword($largeFilePassword)) {
             apiError('大文件密码错误或缺失', 403);
@@ -53,7 +58,7 @@ function handleChunkInit() {
         }
     }
 
-    // 复用旧会话
+    // 恢复模式：复用同 session_id 的 uploading 记录，避免重传
     if ($resume && !empty($sessionId) && strlen($sessionId) === 32) {
         $stmt = $db->prepare('SELECT chunk_count, received_chunks FROM upload_logs WHERE session_id = ? AND status = ?');
         $stmt->execute([$sessionId, 'uploading']);
@@ -69,7 +74,7 @@ function handleChunkInit() {
         }
     }
 
-    // 新会话
+    // 新会话或恢复失败：生成新 session_id
     if (empty($sessionId)) {
         $sessionId = bin2hex(random_bytes(16));
     }
@@ -79,7 +84,7 @@ function handleChunkInit() {
         apiError($validation['error'], 400);
     }
 
-    // 插入 upload_logs 记录
+    // 初始化上传日志记录（upload_logs status=uploading）
     $stmt = $db->prepare('
         INSERT INTO upload_logs
             (item_id, ip, filename, filesize, upload_time, duration, expire_time, user_agent, action,
@@ -102,7 +107,7 @@ function handleChunkInit() {
         'uploading',
     ));
 
-    // 创建分片目录
+    // 为本次会话创建分片存储目录
     $sessionDir = CHUNK_DIR . $sessionId . '/';
     if (!is_dir($sessionDir)) {
         @mkdir($sessionDir, 0755, true);
@@ -117,8 +122,9 @@ function handleChunkInit() {
 }
 
 /**
- * 接收单个分片
- */
+ * 接收单个分片并写入会话目录，更新位图
+ *
+ * @return void 直接通过 apiResponse/apiError 输出
 function handleChunkReceive() {
     if (empty($_POST['session_id']) || !isset($_POST['chunk_index'])) {
         apiError('缺少 session_id 或 chunk_index', 400);
@@ -150,7 +156,7 @@ function handleChunkReceive() {
         apiError('chunk_index 超出范围', 400);
     }
 
-    // 验证 IP
+    // 会话与 IP 不匹配：分片上传中途切换网络/出口 IP 应拒绝，防止跨用户接管
     if ($log['ip'] !== getRealIP()) {
         apiError('会话与 IP 不匹配', 403);
     }
@@ -165,7 +171,7 @@ function handleChunkReceive() {
         apiError('分片写入失败', 500);
     }
 
-    // 更新位图
+    // 更新已接收分片位图
     $bitmap[$chunkIndex] = '1';
     $db->prepare('UPDATE upload_logs SET received_chunks = ? WHERE session_id = ?')
        ->execute(array($bitmap, $sessionId));
@@ -178,15 +184,15 @@ function handleChunkReceive() {
 }
 
 /**
- * 合并所有分片
+ * 合并所有分片为最终文件并登记为新文件项
  *
- * I7 安全加固（4 处）：
- *   1. 重新校验大文件密码（init 时校验过，merge 时再次校验，防 init 后篡改）
- *      merge 请求 body 必须带 large_file_password
- *   2. 实测 merge 后文件大小 vs init 声明 filesize，偏差 > 1% 拒绝（防分片篡改）
- *   3. 乐观锁：UPDATE status='merging' WHERE status='uploading'，
- *      affected rows != 1 拒绝（防并发 merge 双倍写库）
- *   4. stream_copy_to_stream 检查返回值，失败回滚
+ * 加固要点（详见 docs/DESIGN_INTENT.md §1.3）：
+ *   - 密码二次校验（merge 阶段再次校验，防 init 后绕过）
+ *   - 实测文件大小 vs init 声明 filesize，偏差 > 1% 拒绝
+ *   - 乐观锁：UPDATE status='merging' WHERE status='uploading' 防并发 merge
+ *   - stream_copy_to_stream 返回值检查，任何分片失败立即回滚
+ *
+ * @return void 直接通过 apiResponse/apiError 输出
  */
 function handleChunkMerge() {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -209,7 +215,7 @@ function handleChunkMerge() {
         apiError('会话不存在或已结束', 410);
     }
 
-    // I7.1：重新校验大文件密码（init 时已校验，merge 时再校验，防 init 后绕过）
+    // 密码二次校验：init 时已校验过，merge 时再校验防止 init 后篡改请求
     $declaredSize = intval($log['filesize']);
     if ($declaredSize > MAX_FILE_SIZE_NORMAL) {
         if (!verifyLargeFilePassword($largeFilePassword)) {
@@ -220,7 +226,7 @@ function handleChunkMerge() {
     $totalChunks = intval($log['chunk_count']);
     $bitmap = $log['received_chunks'] ?? '';
 
-    // 检查位图完整性
+    // 检查位图完整性：所有分片必须已到达
     if (strlen($bitmap) !== $totalChunks || strpos($bitmap, '0') !== false) {
         apiResponse(array(
             'success' => false,
@@ -230,8 +236,7 @@ function handleChunkMerge() {
         ), 409);
     }
 
-    // I7.3：乐观锁 —— 把 status 从 'uploading' 改为 'merging'，
-    // affected rows != 1 说明已被其他 merge 请求抢先，拒绝
+    // 乐观锁：把 status 从 'uploading' 改为 'merging'，affected rows != 1 说明已被其他 merge 请求抢先
     $lockStmt = $db->prepare("UPDATE upload_logs SET status = 'merging' WHERE session_id = ? AND status = 'uploading'");
     $lockStmt->execute(array($sessionId));
     if ($lockStmt->rowCount() !== 1) {
@@ -245,12 +250,12 @@ function handleChunkMerge() {
 
     $fp = fopen($finalPath, 'wb');
     if (!$fp) {
-        // 失败时回退 status 允许重试
+    // 失败时回退 status 允许重试
         $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
         apiError('无法创建目标文件', 500);
     }
 
-    // I7.4：检查 stream_copy_to_stream 返回值
+    // 检查 stream_copy_to_stream 返回值
     $mergeError = null;
     for ($i = 0; $i < $totalChunks; $i++) {
         $chunkPath = $sessionDir . $i;
@@ -274,13 +279,12 @@ function handleChunkMerge() {
 
     if ($mergeError !== null) {
         @unlink($finalPath);
-        // 失败时回退 status 允许重试
+    // 失败时回退 status 允许重试
         $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
         apiResponse(array_merge(array('success' => false), $mergeError), 409);
     }
 
-    // I7.2：实测 merge 后大小 vs init 声明 filesize
-    // 偏差 > 1% 拒绝（防攻击者控制分片大小绕过 init 时的密码阈值）
+    // 实测 merge 后大小 vs init 声明 filesize，偏差 > 1% 拒绝（防攻击者控制分片大小绕过 init 时的密码阈值）
     $actualSize = filesize($finalPath);
     if ($actualSize <= 0) {
         @unlink($finalPath);
@@ -293,20 +297,20 @@ function handleChunkMerge() {
         $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
         apiError("合并后文件大小 ({$actualSize}) 与初始声明 ({$declaredSize}) 偏差超过 1%，疑似分片篡改", 400);
     }
-    // 同时强校验：实测大小若超过普通阈值且未通过密码，也拒绝（双重保险）
+    // 强校验：实测大小若超过普通阈值且未通过密码也拒绝（与上一条二次校验形成双重保险）
     if ($actualSize > MAX_FILE_SIZE_NORMAL && !verifyLargeFilePassword($largeFilePassword)) {
         @unlink($finalPath);
         $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
         apiError('实际文件大小超过普通上限，需要大文件密码', 403);
     }
 
-    // I6 重构：复用 createFileItem 完成去重 + INSERT + 日志
+    // 复用 createFileItem 完成去重 + INSERT + 日志
     // chunk merge 场景文件已在 UPLOAD_DIR，传 isAlreadyMoved=true（用 rename 而非 move_uploaded_file）
     $duration = intval($log['duration']);
     $accessPassword = ''; // chunk init 当前未支持 access_password 字段，预留
     $result = createFileItem($log['filename'], $finalPath, $actualSize, $duration, $accessPassword, true);
     if ($result['error'] !== null) {
-        // 失败时回退 status，清理可能的临时文件
+    // 失败时回退 status，清理可能的临时文件
         $db->prepare("UPDATE upload_logs SET status = 'uploading' WHERE session_id = ?")->execute(array($sessionId));
         apiError($result['error'], 400);
     }
@@ -338,7 +342,7 @@ function handleChunkMerge() {
 }
 
 /**
- * 清理过期的分片会话（24 小时未合并）
+ * 清理 24 小时内未合并的分片会话（标记 aborted 并删除临时分片）
  */
 function cleanExpiredChunkSessions() {
     $db = getDB();

@@ -1,22 +1,14 @@
 <?php
 /**
- * JSON → SQLite 数据迁移脚本
+ * JSON → SQLite 数据迁移入口
+ *
  * 作者：Hackerdallas
- * 
- * 可通过命令行运行：php src/migrate.php
- * 或通过浏览器访问：?action=migrate
- * 
- * 迁移完成后，旧 JSON 文件会被重命名为 .bak 备份
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 if (!defined('ACCESS_ALLOWED')) {
-    // 允许命令行直接运行
     if (php_sapi_name() === 'cli') {
         define('ACCESS_ALLOWED', true);
-        define('ROOT_DIR', dirname(__DIR__));
-        define('PUBLIC_DIR', ROOT_DIR);
-        define('UPLOAD_DIR', PUBLIC_DIR . '/uploads/');
-        define('STORAGE_DIR', PUBLIC_DIR . '/storage/');
-        define('DATA_FILE', STORAGE_DIR . 'data.json');
     } else {
         exit('Access Denied');
     }
@@ -26,8 +18,8 @@ require_once __DIR__ . '/database.php';
 
 /**
  * 执行迁移
- * 
- * @return array 返回迁移结果
+ *
+ * @return array{success: bool, message: string, items_migrated: int, logs_migrated: int, errors: string[]}
  */
 function runMigration() {
     $result = [
@@ -41,7 +33,6 @@ function runMigration() {
     try {
         $db = getDB();
 
-        // 检查是否已有数据（避免重复迁移）
         $existingCount = $db->query('SELECT COUNT(*) as cnt FROM items')->fetch()['cnt'];
         if ($existingCount > 0) {
             $result['success'] = false;
@@ -49,7 +40,6 @@ function runMigration() {
             return $result;
         }
 
-        // 迁移 data.json
         $dataFile = STORAGE_DIR . 'data.json';
         if (file_exists($dataFile)) {
             $content = file_get_contents($dataFile);
@@ -89,7 +79,6 @@ function runMigration() {
                         ]);
                         $result['items_migrated']++;
                     } catch (Exception $e) {
-                        // I8 加固：PDOException message 含完整 SQL，记录到 error_log 供运维排查
                         error_log("migrate data.json row {$i} failed: " . $e->getMessage());
                         $result['errors'][] = "第 {$i} 条记录迁移失败（详见服务器错误日志）";
                     }
@@ -97,7 +86,6 @@ function runMigration() {
 
                 $db->commit();
 
-                // 备份旧文件
                 if (!file_exists($dataFile . '.bak')) {
                     rename($dataFile, $dataFile . '.bak');
                 }
@@ -108,7 +96,6 @@ function runMigration() {
             $result['message'] .= 'data.json 不存在，跳过。';
         }
 
-        // 迁移 upload_log.json
         $logFile = STORAGE_DIR . 'upload_log.json';
         if (file_exists($logFile)) {
             $content = file_get_contents($logFile);
@@ -137,7 +124,6 @@ function runMigration() {
                         ]);
                         $result['logs_migrated']++;
                     } catch (Exception $e) {
-                        // I8 加固：PDOException message 含完整 SQL，记录到 error_log
                         error_log("migrate upload_log.json row {$i} failed: " . $e->getMessage());
                         $result['errors'][] = "日志第 {$i} 条迁移失败（详见服务器错误日志）";
                     }
@@ -145,7 +131,6 @@ function runMigration() {
 
                 $db->commit();
 
-                // 备份旧文件
                 if (!file_exists($logFile . '.bak')) {
                     rename($logFile, $logFile . '.bak');
                 }
@@ -164,7 +149,6 @@ function runMigration() {
         }
 
     } catch (Exception $e) {
-        // I8 加固：PDOException message 含完整 SQL + 文件路径，对外模糊化
         error_log('migrateJsonToSqlite fatal: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
         $result['success'] = false;
         $result['message'] = '迁移异常（详见服务器错误日志）';
@@ -174,7 +158,6 @@ function runMigration() {
     return $result;
 }
 
-// 命令行直接运行
 if (php_sapi_name() === 'cli') {
     echo "FileShare JSON → SQLite 迁移工具\n";
     echo "================================\n\n";
@@ -182,8 +165,9 @@ if (php_sapi_name() === 'cli') {
     $result = runMigration();
 
     echo $result['message'] . "\n";
+
     if (!empty($result['errors'])) {
-        echo "\n错误详情:\n";
+        echo "\n错误明细：\n";
         foreach ($result['errors'] as $err) {
             echo "  - {$err}\n";
         }

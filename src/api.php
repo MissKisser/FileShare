@@ -12,6 +12,13 @@ if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 // API 响应辅助函数
 // ============================================================
 
+/**
+ * 输出 JSON 响应并终止
+ *
+ * @param mixed $data 响应数据
+ * @param int $statusCode HTTP 状态码
+ * @return void
+ */
 function apiResponse($data, $statusCode = 200) {
     http_response_code($statusCode);
     header('Content-Type: application/json; charset=utf-8');
@@ -19,7 +26,15 @@ function apiResponse($data, $statusCode = 200) {
     exit;
 }
 
+/**
+ * 输出 JSON 错误响应并终止
+ *
+ * @param string $message 错误消息
+ * @param int $statusCode HTTP 状态码
+ * @return void
+ */
 function apiError($message, $statusCode = 400) {
+
     http_response_code($statusCode);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['error' => $message], JSON_UNESCAPED_UNICODE);
@@ -58,7 +73,11 @@ function generateApiToken($db, $name, $permissions = 'read,write', $expiresIn = 
 }
 
 /**
- * 生成刷新 Token
+ * 生成刷新 Token（有效期 7 天，permissions 标记为 refresh）
+ *
+ * @param PDO $db
+ * @param string $name Token 名称
+ * @return array ['refresh_token' => string, 'expires_at' => int]
  */
 function generateRefreshToken($db, $name) {
     $token = bin2hex(random_bytes(32));
@@ -79,10 +98,10 @@ function generateRefreshToken($db, $name) {
 }
 
 /**
- * 验证 API Token
- * 
+ * 验证 API Token（仅从 Authorization 头读取，失败调用 apiError 终止）
+ *
  * @param string $requiredPermission 需要的权限 (read/write/admin)
- * @return array Token 信息或终止请求
+ * @return array Token 信息
  */
 function validateApiToken($requiredPermission = 'read') {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -93,10 +112,6 @@ function validateApiToken($requiredPermission = 'read') {
         $token = $matches[1];
     }
 
-    // I5 安全加固：不再支持 $_GET['token'] fallback —— URL 中的 token 会被
-    // 记入 access log、Referer 头、浏览器历史，造成凭证泄露。所有客户端
-    // 必须使用 Authorization: Bearer <token> Header。
-    // 兼容性影响：原用 ?token= 调用的客户端需改为 Header 方式。
 
     if (empty($token)) {
         apiError('缺少认证 Token（请使用 Authorization: Bearer <token> Header）', 401);
@@ -153,7 +168,7 @@ function handleApiRequest() {
         return;
     }
 
-    // ===== 分片上传端点（B1） =====
+    // 分片上传端点
     if (strpos($endpoint, 'upload/') === 0) {
         require_once __DIR__ . '/chunk_upload.php';
         switch ($endpoint) {
@@ -444,7 +459,7 @@ function handleApiUpload() {
         if ($files['error'][$i] === UPLOAD_ERR_OK) {
             $originalName = $files['name'][$i];
 
-            // I6 重构：复用 createFileItem（含类型校验、去重、move、INSERT、日志）
+            // 复用 createFileItem（含类型校验、去重、move、INSERT、日志）
             $result = createFileItem(
                 $originalName,
                 $files['tmp_name'][$i],
@@ -491,7 +506,7 @@ function handleApiTextSave() {
         apiError('文本内容不能为空', 400);
     }
 
-    // I6 重构：复用 createTextItem
+    // 复用 createTextItem
     $result = createTextItem($text, $duration, $accessPassword);
 
     $apiItem = formatItemForApi($result['item']);

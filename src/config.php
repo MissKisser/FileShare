@@ -7,17 +7,17 @@ if (!defined('ACCESS_ALLOWED')) {
     exit('Access Denied');
 }
 
-// 应用版本号（更新时修改此值，用于静态资源缓存破坏）
+// 应用版本号，修改会改变静态资源 URL 路径以破坏浏览器缓存
 define('APP_VERSION', '1.0.5');
 
-// 目录配置
+// 路径常量
 define('ROOT_DIR', dirname(__DIR__));
 define('PUBLIC_DIR', ROOT_DIR);
 define('UPLOAD_DIR', PUBLIC_DIR . '/uploads/');
 define('STORAGE_DIR', PUBLIC_DIR . '/storage/');
 define('DATA_FILE', STORAGE_DIR . 'data.json');
 
-// 创建必要目录
+// 确保运行所需目录存在
 $dirs = [UPLOAD_DIR, STORAGE_DIR];
 foreach ($dirs as $dir) {
     if (!file_exists($dir)) {
@@ -30,20 +30,22 @@ foreach ($dirs as $dir) {
 // ============================================================
 
 /**
- * 从 .env 文件或环境变量读取配置值
- * 
- * @param string $key 键名
- * @param string $default 默认值
- * @return string
+ * 从系统环境变量或项目 .env 文件读取配置
+ *
+ * @param string $key 变量名
+ * @param string $default 未找到时返回的默认值
+ * @return string 读取到的字符串值
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 function loadEnvVar($key, $default = '') {
-    // 优先从系统环境变量读取
+    // 优先读取进程环境变量
     $value = getenv($key);
     if ($value !== false && $value !== '') {
         return $value;
     }
 
-    // 从 .env 文件读取
+    // 回退：解析项目根目录下的 .env 文件
     $envPath = ROOT_DIR . '/.env';
     if (file_exists($envPath) && is_readable($envPath)) {
         $envLines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -66,51 +68,51 @@ function loadEnvVar($key, $default = '') {
 // ============================================================
 // 上传配置
 // ============================================================
-// PHP 运行时配置说明：
-// upload_max_filesize / post_max_size 是 PHP_INI_PERDIR 模式，
-// ini_set() 无法修改。必须在 php.ini 或 .user.ini 中设置。
-// 当前服务器 php.ini 中已配置 1024M（足够大，业务层另有限制）。
+// upload_max_filesize / post_max_size 由 php.ini / .user.ini 控制
+// （PHP_INI_PERDIR 模式，运行期 ini_set 无效），业务层另设上限兜底。
 
-// 业务层上传限制
-define('MAX_FILE_SIZE_NORMAL', 200 * 1024 * 1024);   // 200MB，普通用户
-define('MAX_FILE_SIZE_LARGE', 2048 * 1024 * 1024);    // 2GB，密码验证后
-define('UPLOAD_THRESHOLD_FOR_PASSWORD', 200 * 1024 * 1024); // 触发密码验证的阈值
+// 业务层大小限制
+define('MAX_FILE_SIZE_NORMAL', 200 * 1024 * 1024);          // 普通上传上限
+define('MAX_FILE_SIZE_LARGE', 2048 * 1024 * 1024);          // 密码验证后大文件上限
+define('UPLOAD_THRESHOLD_FOR_PASSWORD', 200 * 1024 * 1024); // 触发大文件密码验证的阈值
 
-// 大文件上传密码
+// 大文件上传密码（必填，启动时校验）
 $largeFilePassword = loadEnvVar('LARGE_FILE_PASSWORD');
 if (empty($largeFilePassword)) {
     die('Error: LARGE_FILE_PASSWORD is not configured. Please set the LARGE_FILE_PASSWORD environment variable or add it to .env');
 }
 define('LARGE_FILE_PASSWORD', $largeFilePassword);
 
-// 管理员密码（F9）
+// 管理员后台登录密码
 define('ADMIN_PASSWORD', loadEnvVar('ADMIN_PASSWORD', ''));
 
-// 管理员会话 key（admin.php 和 handlers.php 都依赖，放到 config.php 统一引用）
+// 管理员会话在 PHP session 中的键名，admin.php 与 handlers.php 共用
 define('ADMIN_SESSION_NAME', 'fileshare_admin');
 
-// API 开关（F3）
+// REST API 总开关
 define('API_ENABLED', loadEnvVar('API_ENABLED', '1') === '1');
 
-// 站点标题
+// 站点显示标题
 define('SITE_TITLE', loadEnvVar('SITE_TITLE', '文件上传与文本存储系统'));
 
-// 运行时可调整的配置（PHP_INI_ALL 模式，ini_set 有效）
+// 运行时 ini 配置（PHP_INI_ALL，可在脚本中调整）
 @ini_set('max_execution_time', '600');
 @ini_set('max_input_time', '600');
 @ini_set('display_errors', '0');
 @ini_set('log_errors', '1');
 
-// 错误处理
+// 错误输出级别
 error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
 
 /**
  * 允许上传的文件扩展名白名单
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 define('ALLOWED_FILE_EXTENSIONS', [
     // 图片
     'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico',
-    // 矢量图（SVG 可能包含脚本，但业务上需要，下载时强制 attachment 降低风险）
+    // 矢量图
     'svg',
     // 视频
     'mp4', 'webm', 'ogv', 'ogg', 'avi', 'mov', 'mkv',
@@ -119,18 +121,20 @@ define('ALLOWED_FILE_EXTENSIONS', [
     // 文档
     'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
     'txt', 'csv', 'rtf', 'md', 'markdown',
-    // 代码/文本（注意：移除所有可被 web 服务器执行的脚本扩展名）
+    // 代码与文本
     'js', 'ts', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'swift',
     'kt', 'scala', 'rb', 'sh', 'bash', 'ps1', 'bat', 'cmd',
     'css', 'scss', 'less', 'html', 'htm', 'xml', 'json', 'sql', 'yaml', 'yml', 'txt', 'ini', 'conf', 'log',
     // 压缩包
     'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz4',
-    // Android 应用包（二进制，无 web 解释风险）
+    // Android 安装包
     'apk'
 ]);
 
 /**
  * 允许上传的 MIME 类型白名单
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 define('ALLOWED_FILE_MIMES', [
     // 图片
@@ -149,7 +153,7 @@ define('ALLOWED_FILE_MIMES', [
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain', 'text/csv', 'text/rtf', 'text/markdown',
-    // 代码/文本
+    // 代码与文本
     'text/javascript', 'application/javascript', 'application/json', 'text/xml',
     'application/xml', 'text/html', 'text/css', 'text/x-python',
     'text/x-shellscript', 'application/x-sh', 'text/x-c', 'text/x-c++',
@@ -157,13 +161,17 @@ define('ALLOWED_FILE_MIMES', [
     'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
     'application/x-tar', 'application/gzip', 'application/x-gzip', 'application/x-bzip2',
     'application/x-xz',
-    // Android Package（apk 实际 finfo 偶尔报 application/zip / octet-stream, 配合扩展名白名单兜底）
+    // Android 安装包
     'application/vnd.android.package-archive'
 ]);
 
 /**
- * 验证大文件上传密码
- * 使用 hash_equals 防止时序攻击
+ * 校验大文件上传密码
+ *
+ * @param string $password 用户提交的明文密码
+ * @return bool 密码匹配返回 true，否则 false
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 function verifyLargeFilePassword($password) {
     if (!is_string($password)) return false;

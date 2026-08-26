@@ -30,11 +30,13 @@ function isAdminLoggedIn() {
 }
 
 /**
- * 管理员登录
+ * 管理员登录：校验密码并签发 session
+ *
+ * @param string $password 用户提交的明文密码
+ * @return array [success=>bool, message=>string]
  */
 function adminLogin($password) {
-    // 速率限制：按 IP 维度，10 次/60 秒
-    // admin 密码默认值 please-change-admin-password 较弱，必须防爆破
+    // 按 IP 维度速率限制
     $rateLimitKey = 'admin_login_' . getRealIP();
     if (isRateLimitedByKey($rateLimitKey, 10, 60)) {
         return ['success' => false, 'message' => '尝试次数过多，请稍后再试'];
@@ -67,7 +69,7 @@ function adminLogin($password) {
 }
 
 /**
- * 管理员登出
+ * 管理员登出：删除数据库 session 并清除 PHP session 标记
  */
 function adminLogout() {
     if (!empty($_SESSION[ADMIN_SESSION_NAME])) {
@@ -81,8 +83,13 @@ function adminLogout() {
 // ============================================================
 // 管理后台路由
 // ============================================================
-
+/**
+ * 管理后台入口路由：分发 login / logout / dashboard / items / logs / settings / batch-thumbnails
+ * 登录与登出页面免认证，其他页面需 isAdminLoggedIn() 校验
+ */
 function handleAdminRequest() {
+
+
     $page = $_GET['admin'] ?? 'login';
 
     // 登录页面和登录请求不需要认证
@@ -183,6 +190,11 @@ function handleAdminRequest() {
 // 管理后台数据获取
 // ============================================================
 
+/**
+ * 汇总 dashboard 页面所需的统计数据与最近活动
+ *
+ * @return array 含 stats / disk / today_uploads / today_downloads / recent_uploads / recent_downloads
+ */
 function getAdminDashboardData() {
     $db = getDB();
     $stats = getStorageStats();
@@ -212,13 +224,19 @@ function getAdminDashboardData() {
     ];
 }
 
+
+/**
+ * 拉取后台 items 列表（支持搜索关键字 / 类型筛选 / 排序 / 分页）
+ *
+ * @return array 含 items / query / type_filter / pagination
+ */
 function getAdminItemsData() {
     $query = $_GET['q'] ?? '';
     $typeFilter = $_GET['type'] ?? 'all';
     $sort = $_GET['sort'] ?? 'time';
     $sortOrder = $_GET['order'] ?? 'desc';
-
-    // I4：分页（默认 50/页，避免 items 表上万行后 admin 页全量渲染卡顿）
+    // 后台分页（默认 50/页）
+    // 设计意图见 docs/DESIGN_INTENT.md §2.2
     $perPage = 50;
     $page = max(1, intval($_GET['page'] ?? 1));
     $offset = ($page - 1) * $perPage;
@@ -242,6 +260,11 @@ function getAdminItemsData() {
     ];
 }
 
+/**
+ * 拉取后台 logs 页面（上传日志 + 下载日志，统一分页 50/页）
+ *
+ * @return array 含 upload_logs / download_logs / total_uploads / total_downloads / page / per_page
+ */
 function getAdminLogsData() {
     $db = getDB();
     $page = max(1, intval($_GET['page'] ?? 1));
@@ -270,6 +293,11 @@ function getAdminLogsData() {
     ];
 }
 
+/**
+ * 拉取后台 settings 页面所需数据：按 category 分组并按固定类别顺序输出
+ *
+ * @return array 含 groups（有序分组列表）
+ */
 function getAdminSettingsData() {
     $db = getDB();
     $rows = $db->query('SELECT key, value, label, description, category, control_type FROM settings ORDER BY category, sort_order, key')->fetchAll();
@@ -319,11 +347,9 @@ function getAdminSettingsData() {
 
 /**
  * 设置项校验规则
- * 返回数组：每项 [type, min, max, pattern, hint]
- *  - type: 'int' | 'bytes' | 'bool' | 'ip_list' | 'text' | 'string'
- *  - min/max: 数值范围
- *  - pattern: 正则（可选）
- *  - hint: 错误提示前缀
+ *
+ * @return array<string, array> key → [type, min, max, pattern?, hint]
+ *  type: 'int' | 'bytes' | 'bool' | 'ip_list' | 'text' | 'string'
  */
 function getSettingValidationRules() {
     return [
@@ -340,8 +366,9 @@ function getSettingValidationRules() {
 
 /**
  * 解析人类友好的字节数（支持 100KB / 2MB / 1GB）
- * @param string $input
- * @return int|false 字节数，无效返回 false
+ *
+ * @param string $input 待解析字符串（如 "2MB"）
+ * @return int|false 字节数，无效输入返回 false
  */
 function parseSizeInput($input) {
     $input = trim($input);
@@ -364,7 +391,10 @@ function parseSizeInput($input) {
 }
 
 /**
- * 校验并规范化一个设置值
+ * 按规则校验并规范化一个设置值
+ *
+ * @param string $key 设置 key（用于查找规则；未知 key 走 string 默认规则）
+ * @param mixed $raw 原始输入
  * @return array [ok=>bool, value=>string, error=>string]
  */
 function validateSettingValue($key, $raw) {
@@ -430,6 +460,9 @@ function validateSettingValue($key, $raw) {
     return ['ok' => true, 'value' => $val];
 }
 
+/**
+ * 处理 settings 保存请求：CSRF 校验 → 逐项校验 → 写库；错误 / 成功消息写入 session 由模板读取
+ */
 function handleAdminSettingsSave() {
     if (!validateCSRF()) {
         return;

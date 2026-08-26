@@ -1,17 +1,16 @@
 <?php
 /**
  * 数据处理函数库
+ *
  * 作者：Hackerdallas
- * 
- * 重构为 SQLite 数据库操作，保持对外接口兼容
+ *
+ * 设计意图见 docs/DESIGN_INTENT.md
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
-
 /**
  * 加载所有项目数据
- * 兼容旧接口，返回数组格式
  *
- * 注意：首页公开渲染此数据。绝不能返回以下敏感列：
+ * 首页公开渲染此数据。绝不能返回以下敏感列：
  *   - content（密码保护文本/私密贴全文）
  *   - path / file_hash（物理文件路径与哈希）
  *   - ip / user_agent（创建者隐私）
@@ -31,7 +30,7 @@ function loadData() {
 
 /**
  * 保存数据（兼容接口，新代码应使用具体的插入/更新函数）
- * 
+ *
  * @param array $data
  */
 function saveData($data) {
@@ -42,17 +41,13 @@ function saveData($data) {
 /**
  * 清理过期项目
  *
- * I3 性能优化：每次首页加载都跑全表 SELECT + 可能 DELETE + unlink 是性能反模式。
- * 现在加节流：距上次清理 < 5 分钟则跳过（settings.last_clean_expired 时间戳）。
- * 副作用：过期项最长可能多存 5 分钟才被清理，业务上可接受。
- *
  * @param array &$data 兼容参数，SQLite 模式下不使用
  */
 function cleanExpired(&$data = null) {
     $db = getDB();
     $now = time();
 
-    // 节流：5 分钟内已清理过则跳过
+    // 节流：5 分钟内已清理过则跳过（详见 DESIGN_INTENT §2.1）
     $lastClean = (int)getSetting('last_clean_expired', '0');
     if ($lastClean > 0 && ($now - $lastClean) < 300) {
         return;
@@ -60,7 +55,6 @@ function cleanExpired(&$data = null) {
     // 立即更新时间戳，避免并发请求重复清理
     setSetting('last_clean_expired', (string)$now);
 
-    // 获取即将过期的文件项目（需要删除物理文件）
     $stmt = $db->prepare('SELECT id, path, type, file_hash FROM items WHERE expire > 0 AND expire < ?');
     $stmt->execute([$now]);
     $expiredItems = $stmt->fetchAll();
@@ -72,10 +66,8 @@ function cleanExpired(&$data = null) {
     $db->beginTransaction();
 
     foreach ($expiredItems as $item) {
-        // 删除物理文件（仅在无其他项目引用同一文件时）
         if ($item['type'] === 'file' && !empty($item['path']) && file_exists($item['path'])) {
             if (!empty($item['file_hash'])) {
-                // 检查是否有其他项目引用同一文件
                 $refStmt = $db->prepare('SELECT COUNT(*) as cnt FROM items WHERE path = ? AND id != ?');
                 $refStmt->execute([$item['path'], $item['id']]);
                 $refCount = $refStmt->fetch()['cnt'];
@@ -88,19 +80,16 @@ function cleanExpired(&$data = null) {
         }
     }
 
-    // 先删除关联的日志记录（外键约束），再删除 items
     $expiredIds = array_column($expiredItems, 'id');
     $idPlaceholders = implode(',', array_fill(0, count($expiredIds), '?'));
     $db->prepare("DELETE FROM download_logs WHERE item_id IN ($idPlaceholders)")->execute($expiredIds);
     $db->prepare("DELETE FROM upload_logs WHERE item_id IN ($idPlaceholders)")->execute($expiredIds);
 
-    // 批量删除过期记录
     $delStmt = $db->prepare('DELETE FROM items WHERE expire > 0 AND expire < ?');
     $delStmt->execute([$now]);
 
     $db->commit();
 
-    // 失效 stats 缓存（items 表已变化）
     invalidateStorageStatsCache();
 }
 
@@ -108,13 +97,9 @@ function cleanExpired(&$data = null) {
  * 失效 getStorageStats 结果缓存
  * 触发时机：items 表内容发生变化（删除、过期清理、上传新文件后由调用方主动触发）
  */
-function invalidateStorageStatsCache() {
-    setSetting('storage_stats_cache_ts', '0');
-}
-
 /**
  * 根据分享码获取项目
- * 
+ *
  * @param string $code 分享码
  * @return array|null
  */
@@ -128,7 +113,6 @@ function getItemByCode($code) {
 
 /**
  * 根据 ID 获取项目
- * 
  * @param int $id
  * @return array|null
  */
@@ -151,14 +135,8 @@ function deleteItemById($id) {
     return $result['deleted_count'] === 1;
 }
 
-// ============================================================
-// I6 重构：共用上传/文本创建函数
-// 解决 handleFileUpload / handleApiUpload / handleChunkMerge
-// 与 handleTextSave / handleApiTextSave 严重重复（~200 行复制）的问题
-// ============================================================
-
 /**
- * 共用：净化文件名为安全的存储文件名
+ * 净化文件名为安全的存储文件名
  *
  * @param string $originalName 用户上传的原文件名
  * @return string 净化后的文件名（仅 [a-zA-Z0-9._-]，截断到 200 字符）
@@ -169,9 +147,7 @@ function sanitizeStoredFilename($originalName) {
 }
 
 /**
- * 共用：创建文件 item（含去重、SHA-256、move、INSERT、日志）
- *
- * 用于：handleFileUpload / handleApiUpload / handleChunkMerge
+ * 创建文件 item（含去重、SHA-256、move、INSERT、日志）
  *
  * @param string $originalName 用户上传的原文件名
  * @param string $tmpPath 临时文件路径（普通上传是 $_FILES['tmp_name']，chunk 是 merge 后的最终路径）
@@ -264,9 +240,7 @@ function createFileItem($originalName, $tmpPath, $size, $duration, $accessPasswo
 }
 
 /**
- * 共用：创建文本 item
- *
- * 用于：handleTextSave / handleApiTextSave
+ * 创建文本 item
  *
  * @param string $text 文本内容
  * @param int $duration 保留时长（秒，0=永久）
@@ -295,7 +269,7 @@ function createTextItem($text, $duration, $accessPassword) {
 
     $itemId = $db->lastInsertId();
 
-    // 日志：不记录原文（隐私/安全，密码保护项尤为严重），仅记录类型 + 大小 + 是否密码保护
+    // 日志仅记类型 + 大小 + 是否密码保护，不记原文（详见 DESIGN_INTENT §6）
     $logLabel = '文本片段';
     if (!empty($accessPassword)) {
         $logLabel .= ' [密码保护]';
@@ -311,13 +285,7 @@ function createTextItem($text, $duration, $accessPassword) {
 }
 
 /**
- * 原子删除一个或多个 item — P1 重构核心
- *
- * 修复的问题：
- *  - P1.1 事务边界错误（旧实现 beginTransaction 在 DELETE 之外，unlink 失败不回滚）
- *  - P1.2 关联日志残留（旧实现只 DELETE items，download_logs / upload_logs 留孤儿行）
- *  - P1.3 物理文件引用计数 race（旧实现"先查再删"两步走、无锁）
- *  - P1.5 ID enumeration（旧实现 errors 数组泄露哪些 ID 不存在）
+ * 原子删除一个或多个 item
  *
  * 行为契约：
  *  - 全部成功 → 返回 ['deleted' => [id => share_code], 'errors' => [], 'deleted_count' => N]
@@ -429,14 +397,13 @@ function batchDeleteItems($ids) {
  * @param string $categoryFilter 分类过滤 (image/video/audio/doc/code/archive)
  * @param string $sort 排序字段 (time/size/name/expire)
  * @param string $sortOrder 排序方向 (desc/asc)
- * @param int|null $limit 限制条数（null=不限，I4 admin 分页用）
- * @param int $offset 偏移量（I4 admin 分页用）
+ * @param int|null $limit 限制条数（null=不限，admin 分页用）
+ * @param int $offset 偏移量（admin 分页用）
  * @return array
  */
 function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $sort = 'time', $sortOrder = 'desc', $limit = null, $offset = 0) {
     $db = getDB();
     $params = [];
-    $where = ['1=1'];
 
     // 搜索关键词
     if (!empty($query)) {
@@ -474,8 +441,7 @@ function searchItems($query = '', $typeFilter = 'all', $categoryFilter = '', $so
     $sort = in_array($sort, $allowedSorts) ? $sort : 'time';
     $sortOrder = strtolower($sortOrder) === 'asc' ? 'ASC' : 'DESC';
 
-    // I4：可选 limit/offset（向后兼容：null=不限）
-    $limitClause = '';
+    // 可选 limit/offset（向后兼容：null=不限；详见 DESIGN_INTENT §2.2）
     if ($limit !== null) {
         $limit = max(1, (int)$limit);
         $offset = max(0, (int)$offset);
@@ -557,26 +523,20 @@ function getCategoryExtensions($category) {
 function incrementDownloadCount($id, $ip = '', $userAgent = '') {
     $db = getDB();
 
-    // 更新计数
     $stmt = $db->prepare('UPDATE items SET download_count = download_count + 1 WHERE id = ?');
     $stmt->execute([$id]);
 
-    // 记录下载日志
     $logStmt = $db->prepare('
         INSERT INTO download_logs (item_id, ip, user_agent, download_time)
         VALUES (?, ?, ?, ?)
     ');
     $logStmt->execute([$id, $ip, $userAgent, time()]);
 
-    // M11：日志清理移出热路径
-    // 原实现每次下载都跑 DELETE FROM download_logs WHERE id NOT IN (... LIMIT 10000)
-    // 全表子查询，下载高峰时放大 DB 写入。
-    // 改为：settings 表计数器 download_logs_cleaned_at，距离上次 > 1 小时才清理
+    // 日志清理移出热路径：1 小时节流（详见 DESIGN_INTENT §2.1）
     $lastClean = (int)getSetting('download_logs_cleaned_at', '0');
     if ($lastClean === 0 || (time() - $lastClean) > 3600) {
         setSetting('download_logs_cleaned_at', (string)time());
         try {
-            // 保留最近 10000 条
             $idsToKeep = $db->query('SELECT id FROM download_logs ORDER BY download_time DESC LIMIT 10000')->fetchAll(PDO::FETCH_COLUMN);
             if (!empty($idsToKeep)) {
                 $placeholders = implode(',', array_fill(0, count($idsToKeep), '?'));
@@ -614,14 +574,12 @@ function logUploadToDb($itemId, $filename, $filesize, $duration) {
         'upload'
     ]);
 
-    // M11：日志清理移出热路径（与 incrementDownloadCount 一致）
-    // settings 表计数器 upload_logs_cleaned_at，距离上次 > 1 小时才清理
+    // 日志清理移出热路径：1 小时节流（详见 DESIGN_INTENT §2.1）
+    // 两步清理：先查 id 再 DELETE，避开 SQLite 同表子查询限制（§2.4）
     $lastClean = (int)getSetting('upload_logs_cleaned_at', '0');
     if ($lastClean === 0 || (time() - $lastClean) > 3600) {
         setSetting('upload_logs_cleaned_at', (string)time());
         try {
-            // 清理旧日志（保留最近 500 条）
-            // 使用两步清理：先查 id，再 DELETE — 避免 SQLite 同表子查询限制
             $idsToKeep = $db->query('
                 SELECT id FROM upload_logs ORDER BY upload_time DESC LIMIT 500
             ')->fetchAll(PDO::FETCH_COLUMN);
@@ -631,7 +589,6 @@ function logUploadToDb($itemId, $filename, $filesize, $duration) {
                    ->execute($idsToKeep);
             }
         } catch (Exception $e) {
-            // 清理失败不影响主流程
             error_log('logUploadToDb cleanup failed: ' . $e->getMessage());
         }
     }
@@ -730,9 +687,7 @@ function maskContent($content) {
 /**
  * 获取存储统计信息
  *
- * I3 性能优化：
- *   1. 6 次分类 SUM 合并为 1 次 SQL（CASE WHEN 分列 SUM）
- *   2. 结果缓存到 settings.storage_stats_cache (JSON)，5 分钟过期
+ * 6 次分类 SUM 合并为 1 次 SQL，结果缓存 5 分钟（详见 DESIGN_INTENT §2.3）
  *
  * @return array
  */
@@ -932,7 +887,7 @@ function setSetting($key, $value) {
 
 /**
  * 检查 IP 是否在黑名单中
- * 
+ *
  * @param string $ip
  * @return bool
  */
@@ -956,7 +911,7 @@ function isIPBlacklisted($ip) {
  * 复用 upload_logs 表，action 字段填 'admin_<verb>' 区分（如 'admin_delete'）。
  * 读端在 templates/admin/layout.php 的 logs 页面筛 action LIKE 'admin_%' 即可。
  *
- * 注意：item_id 列对 items(id) 有 FK 约束。对"删除"操作来说，调用时 item 已被删，
+ * item_id 列对 items(id) 有 FK 约束。对"删除"操作来说，调用时 item 已被删，
  * 直接写 item_id 会触发 FK 约束失败。所以这里把 item_id 设为 NULL，把可追溯
  * 的 share_code / itemType 拼到 filename 列里（形如 'admin_delete:abc123 [file]'）。
  *

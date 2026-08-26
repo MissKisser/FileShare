@@ -92,6 +92,9 @@ function archiveRead($item, $innerPath) {
 
 /**
  * 列出 ZIP 文件内容
+ *
+ * @param string $path 压缩包文件绝对路径
+ * @return array<int, array{name:string,size:int,is_dir:bool,compressed_size:int}> 文件条目列表
  */
 function archiveListZip($path) {
     $entries = array();
@@ -121,6 +124,10 @@ function archiveListZip($path) {
 
 /**
  * 读取 ZIP 内单个文件
+ *
+ * @param string $path 压缩包文件绝对路径
+ * @param string $innerPath 压缩包内文件路径
+ * @return array [content=>string, mime=>string, error=>string|null]
  */
 function archiveReadZip($path, $innerPath) {
     $result = array('content' => '', 'mime' => 'text/plain', 'error' => null);
@@ -191,7 +198,10 @@ function archiveReadZip($path, $innerPath) {
 // ============================================================
 
 /**
- * 列出 TAR 文件内容
+ * 列出 TAR 文件内容（支持 .tar / .tar.gz / .tgz）
+ *
+ * @param string $path 压缩包文件绝对路径
+ * @return array<int, array{name:string,size:int,is_dir:bool,compressed_size:int}> 文件条目列表
  */
 function archiveListTar($path) {
     $entries = array();
@@ -217,7 +227,7 @@ function archiveListTar($path) {
             );
         }
     } catch (Exception $e) {
-        // I8 加固：异常 message 含 PharData 内部细节，对用户模糊化
+    // PharData 异常对用户模糊化，记录到 error_log 供运维
         error_log('archiveListTar failed: ' . $e->getMessage());
         $entries[] = array('name' => '(无法读取压缩包内容)', 'size' => 0, 'is_dir' => false);
     }
@@ -226,6 +236,10 @@ function archiveListTar($path) {
 
 /**
  * 读取 TAR 内单个文件
+ *
+ * @param string $path 压缩包文件绝对路径
+ * @param string $innerPath 压缩包内文件路径
+ * @return array [content=>string, mime=>string, error=>string|null]
  */
 function archiveReadTar($path, $innerPath) {
     $result = array('content' => '', 'mime' => 'text/plain', 'error' => null);
@@ -272,7 +286,7 @@ function archiveReadTar($path, $innerPath) {
         $result['content'] = $content;
         $result['mime'] = guessTextMime($innerExt);
     } catch (Exception $e) {
-        // I8 加固：异常 message 含 phar:// 路径细节，对用户模糊化
+    // PharData 异常对用户模糊化，记录到 error_log 供运维
         error_log('archiveReadTar failed: ' . $e->getMessage());
         $result['error'] = '读取压缩包内容失败';
     }
@@ -285,7 +299,10 @@ function archiveReadTar($path, $innerPath) {
 // ============================================================
 
 /**
- * 简单检测二进制内容
+ * 简单检测二进制内容（采样前 4KB：含 NULL 字节或控制字符占比 > 1% 视为二进制）
+ *
+ * @param string $str 待检测内容
+ * @return bool 是否为二进制内容
  */
 function isBinaryContent($str) {
     // 取前 4KB 检测
@@ -307,7 +324,10 @@ function isBinaryContent($str) {
 }
 
 /**
- * 根据扩展名猜测文本 MIME
+ * 根据扩展名猜测文本 MIME（未命中映射返回 text/plain）
+ *
+ * @param string $ext 小写扩展名（不带点）
+ * @return string MIME 类型
  */
 function guessTextMime($ext) {
     $map = array(
