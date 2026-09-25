@@ -1,6 +1,5 @@
 /**
- * 文件上传与拖拽上传功能
- * 作者：Hackerdallas
+ * 文件上传与拖拽上传交互逻辑。
  */
 
 /**
@@ -517,26 +516,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /**
      * 验证文件
-     * - 不再以 200MB 作为硬限制（大文件走密码流程）
-     * - 前端白名单已整体放开：服务器侧负责安全（uploads/ 禁脚本执行 + LARGE_FILE_PASSWORD 大文件阈值）
-     * - 仅对陌生 MIME 给出提醒，不阻塞上传
+     * - 前端不再做 MIME / 扩展名校验：服务器侧负责安全（uploads/ 禁脚本执行 + 大文件密码流程）
+     * - 始终返回有效，不阻塞上传
      */
     function validateFile(file) {
-        const errors = [];
-
-        // 白名单已整体放开：服务器侧（uploads/ 禁脚本执行 + LARGE_FILE_PASSWORD 大文件阈值）
-        // 才是安全防线，前端不再按扩展名拦截。
-        // 保留 MIME 校验作为辅助提示：浏览器对未知二进制常报 application/octet-stream，
-        // 这条 case 已在白名单里放过，不会误伤；遇到真正奇怪的 MIME（例如 text/html 伪装成
-        // 二进制上传）仍会提醒用户，但不阻塞上传。
-        if (file.type && UPLOAD_CONFIG.allowedTypes.indexOf(file.type) === -1) {
-            errors.push('文件 MIME 类型不在常见列表中（仍允许上传，请确认来源安全）');
-        }
-
-
         return {
-            valid: errors.length === 0,
-            errors: errors
+            valid: true,
+            errors: []
         };
     }
 
@@ -815,7 +801,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * 更新上传按钮状态（兼容性保留）
+     * 更新上传按钮状态
      */
     function updateUploadButtonState() {
         if (startDragUpload) {
@@ -825,11 +811,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ========================================
-    // 保留旧的函数以兼容模板（但不显示）
+    // 文件列表辅助函数
     // ========================================
 
     /**
-     * 更新文件列表UI（旧版本，保留兼容性）
+     * 更新文件列表 UI
      */
     function updateFileList() {
         if (!dragFileList) return;
@@ -861,7 +847,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * 创建文件列表项HTML（旧版本，保留兼容性）
+     * 创建文件列表项 HTML
      */
     function createFileListItem(fileData) {
         const icon = getFileTypeIcon(fileData);
@@ -914,7 +900,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * 移除文件（旧版本，保留兼容性）
+     * 移除文件
      */
     function removeFile(fileId) {
         const item = dragFileList.querySelector(`[data-file-id="${fileId}"]`);
@@ -932,18 +918,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    /**
-     * 显示文件面板（旧版本，保留兼容性但不实际使用）
-     */
-    function showFilePanel() {
-        // 旧版本函数，现在不再使用
-    }
 
     /**
-     * 隐藏文件面板（旧版本，保留兼容性但不实际使用）
+     * 隐藏文件面板
      */
     function hideFilePanel() {
-        // 旧版本函数，现在不再使用
     }
 
     // ========================================
@@ -1549,7 +1528,7 @@ document.addEventListener('DOMContentLoaded', function() {
         clearSelectedFilesBtn.addEventListener('click', clearAllFiles);
     }
 
-    // 清空所有文件按钮（旧版本，保留兼容性）
+    // 清空所有文件按钮
     if (clearAllFilesBtn) {
         clearAllFilesBtn.addEventListener('click', clearAllFiles);
     }

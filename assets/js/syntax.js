@@ -1,9 +1,5 @@
 /**
- * FileShare 语法高亮封装
- * 作者：FileShare Contributors
- *
- * 自动为带有 data-language 属性的 <pre>/<code> 元素调用 Prism 高亮。
- * 依赖：Prism.js 已在主页面通过 CDN 加载。
+ * 语法高亮封装。
  */
 (function () {
     'use strict';

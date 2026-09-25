@@ -1,10 +1,5 @@
 /**
- * FileShare 缩略图展示与懒生成
- * 作者：FileShare Contributors
- *
- * - 自动为 [data-thumbnail-item] 元素加载缩略图
- * - 缩略图缺失时请求懒生成
- * - 失败时显示默认图标
+ * 缩略图展示与懒加载。
  */
 (function () {
     'use strict';
@@ -33,7 +28,7 @@
 
     // I2 安全加固：HTML 属性转义，防止 thumbPath 注入引号/尖括号导致 XSS。
     // 虽然当前 thumbPath 来自后端 basename() 受控，但任何字符串拼接到 HTML 属性
-    // 都必须转义，避免后端逻辑变更时引入 XSS 面。
+    // 都必须转义，防止 thumbPath 属性注入。
     function escapeAttr(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;')

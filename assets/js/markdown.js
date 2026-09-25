@@ -1,9 +1,5 @@
 /**
- * FileShare Markdown 渲染
- * 作者：FileShare Contributors
- *
- * 依赖：Marked.js + DOMPurify (CDN)
- * 用法：自动检测 .md/.markdown 文件内容，渲染为 HTML。
+ * Markdown 渲染。
  */
 (function () {
     'use strict';

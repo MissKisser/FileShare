@@ -1,10 +1,6 @@
 <?php
 /**
- * 数据处理函数库
- *
- * 作者：Hackerdallas
- *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 数据处理函数库。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 /**
@@ -97,6 +93,10 @@ function cleanExpired(&$data = null) {
  * 失效 getStorageStats 结果缓存
  * 触发时机：items 表内容发生变化（删除、过期清理、上传新文件后由调用方主动触发）
  */
+function invalidateStorageStatsCache() {
+    setSetting('storage_stats_cache_ts', '0');
+}
+
 /**
  * 根据分享码获取项目
  *
@@ -295,7 +295,7 @@ function createTextItem($text, $duration, $accessPassword) {
  * @param int[] $ids 待删除的 item id 列表
  * @return array{deleted: array<int,string>, errors: array<int,string>, deleted_count: int}
  */
-function deleteItemsAtomically(array $ids) {
+function deleteItemsAtomically($ids) {
     $db = getDB();
 
     // 规范化输入：去重、强制 int、过滤无效（PHP 7.3 兼容写法，不用 fn() 箭头函数）

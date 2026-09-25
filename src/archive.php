@@ -1,12 +1,6 @@
 <?php
 /**
- * 压缩包在线预览后端
- * 作者：FileShare Contributors
- *
- * 支持 .zip / .tar / .tar.gz / .tgz 格式
- * 提供两个操作：
- *   - list: 列出压缩包内文件树
- *   - read: 读取压缩包内单个文件内容（文本类）
+ * 压缩包在线预览后端。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 

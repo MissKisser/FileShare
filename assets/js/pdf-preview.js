@@ -1,9 +1,5 @@
 /**
- * FileShare PDF 在线预览
- * 作者：FileShare Contributors
- *
- * 依赖：PDF.js (CDN)
- * 用法：在 PDF 预览页面自动初始化，渲染 PDF 到 canvas。
+ * PDF 在线预览。
  */
 (function () {
     'use strict';

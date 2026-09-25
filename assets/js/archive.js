@@ -1,10 +1,5 @@
 /**
- * FileShare 压缩包在线预览
- * 作者：FileShare Contributors
- *
- * 用法：在分享页，压缩包类型文件会显示「在线预览」按钮，
- *       点击后调用 archive.js 加载文件列表和内容。
- * 依赖：后端 ?archive=list&item_id=N 和 ?archive=read&item_id=N&path=xxx
+ * 压缩包在线预览前端逻辑。
  */
 (function () {
     'use strict';

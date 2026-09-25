@@ -1,10 +1,6 @@
 <?php
 /**
- * JSON → SQLite 数据迁移入口
- *
- * 作者：Hackerdallas
- *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * JSON 至 SQLite 数据迁移入口。
  */
 if (!defined('ACCESS_ALLOWED')) {
     if (php_sapi_name() === 'cli') {

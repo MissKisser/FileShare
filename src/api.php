@@ -1,10 +1,6 @@
 <?php
 /**
- * RESTful API 路由和认证逻辑
- * 作者：Hackerdallas
- * 
- * 动态 Token + 刷新机制
- * 所有 API 响应返回 JSON
+ * RESTful API 路由与认证逻辑。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -146,6 +142,42 @@ function validateApiToken($requiredPermission = 'read') {
     return $tokenInfo;
 }
 
+/**
+ * 验证 Chunk Upload 权限。
+ *
+ * 接受以下任一凭据，满足与现有架构一致的双轨制（REST API Bearer / Web 会话+CSRF）：
+ *  - Authorization: Bearer <api_token>（REST API 客户端路径，权限要求 write）
+ *  - 会话已开启 + csrf_token（Web UI 路径，从 $_POST/JSON body/X-CSRF-Token 头读取）
+ *
+ * Chunk 处理器自身还有 IP 绑定 session / 大文件密码 / MAX_FILE_SIZE_LARGE 等更细的校验，
+ * 所以即便未走 Bearer 路径也不会被滥用为公共上传入口。
+ *
+ * @return array 鉴权信息
+ */
+function validateChunkUploadAuth() {
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (preg_match('/^Bearer\s+(.+)$/i', $authHeader)) {
+        return validateApiToken('write');
+    }
+
+    // Web 路径：与会话 csrf_token 比对，从 $_POST / JSON body / 自定义头三个来源读
+    $csrfToken = $_POST['csrf_token'] ?? '';
+    if ($csrfToken === '') {
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (is_array($body)) {
+            $csrfToken = $body['csrf_token'] ?? '';
+        }
+    }
+    if ($csrfToken === '') {
+        $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    }
+    if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrfToken)) {
+        apiError('安全验证失败（chunk upload 需要 API Token 或会话 CSRF）', 403);
+    }
+
+    return ['permissions' => 'write'];
+}
+
 // ============================================================
 // API 路由分发
 // ============================================================
@@ -174,7 +206,7 @@ function handleApiRequest() {
         switch ($endpoint) {
             case 'upload/init':
                 if ($method === 'POST') {
-                    validateApiToken('write');
+                    validateChunkUploadAuth();
                     handleChunkInit();
                 } else {
                     apiError('不支持的请求方法', 405);
@@ -182,7 +214,7 @@ function handleApiRequest() {
                 break;
             case 'upload/chunk':
                 if ($method === 'POST') {
-                    validateApiToken('write');
+                    validateChunkUploadAuth();
                     handleChunkReceive();
                 } else {
                     apiError('不支持的请求方法', 405);
@@ -190,7 +222,7 @@ function handleApiRequest() {
                 break;
             case 'upload/merge':
                 if ($method === 'POST') {
-                    validateApiToken('write');
+                    validateChunkUploadAuth();
                     handleChunkMerge();
                 } else {
                     apiError('不支持的请求方法', 405);

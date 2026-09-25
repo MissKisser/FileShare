@@ -1,9 +1,6 @@
 <?php
 /**
- * 管理后台路由和逻辑
- * 作者：Hackerdallas
- * 
- * 认证方式：环境变量密码 + Session
+ * 管理后台路由与业务逻辑。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -236,7 +233,7 @@ function getAdminItemsData() {
     $sort = $_GET['sort'] ?? 'time';
     $sortOrder = $_GET['order'] ?? 'desc';
     // 后台分页（默认 50/页）
-    // 设计意图见 docs/DESIGN_INTENT.md §2.2
+    // 设计意图见 docs/design/DESIGN_INTENT.md §2.2
     $perPage = 50;
     $page = max(1, intval($_GET['page'] ?? 1));
     $offset = ($page - 1) * $perPage;

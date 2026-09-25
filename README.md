@@ -172,7 +172,7 @@ FileShare/
 ├── .env                       # 运行时环境变量（不入库）
 ├── .env.example               # 环境变量模板
 ├── .user.ini                  # PHP 运行时配置
-└── API.md                     # API 文档
+└── docs/api/API.md              # API 文档
 ```
 
 ## 配置说明
@@ -244,7 +244,7 @@ FileShare/
 
 ## API
 
-完整的 RESTful API 文档请参见 [API.md](API.md)。
+完整的 RESTful API 文档请参见 [API.md](docs/api/API.md)。
 
 ### 快速示例
 

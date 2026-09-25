@@ -1,9 +1,5 @@
 /**
- * FileShare 图片灯箱
- * 作者：FileShare Contributors
- *
- * 用法：所有 [data-gallery] 图片元素会在分享页被绑定，点击触发灯箱。
- * 灯箱内可左右切换同分享页所有图片。
+ * 图片灯箱。
  */
 (function () {
     'use strict';

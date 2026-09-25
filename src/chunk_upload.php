@@ -1,15 +1,6 @@
 <?php
 /**
- * 分片上传管理
- *
- * 作者：FileShare Contributors
- *
- * 端点：
- *   POST ?api=upload/init   - 创建/恢复会话
- *   POST ?api=upload/chunk  - 接收单个分片
- *   POST ?api=upload/merge  - 合并所有分片
- *
- * 设计意图见 docs/DESIGN_INTENT.md §1.3（分片上传加固）
+ * 分片上传管理。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -186,7 +177,7 @@ function handleChunkReceive() {
 /**
  * 合并所有分片为最终文件并登记为新文件项
  *
- * 加固要点（详见 docs/DESIGN_INTENT.md §1.3）：
+ * 加固要点（详见 docs/design/DESIGN_INTENT.md §1.3）：
  *   - 密码二次校验（merge 阶段再次校验，防 init 后绕过）
  *   - 实测文件大小 vs init 声明 filesize，偏差 > 1% 拒绝
  *   - 乐观锁：UPDATE status='merging' WHERE status='uploading' 防并发 merge

@@ -1,13 +1,12 @@
 <?php
 /**
- * 系统配置
- * 作者：Hackerdallas
+ * 系统配置。
  */
 if (!defined('ACCESS_ALLOWED')) {
     exit('Access Denied');
 }
 
-// 应用版本号，修改会改变静态资源 URL 路径以破坏浏览器缓存
+// 应用资源标识，更新后可刷新静态资源缓存
 define('APP_VERSION', '1.0.5');
 
 // 路径常量
@@ -36,7 +35,7 @@ foreach ($dirs as $dir) {
  * @param string $default 未找到时返回的默认值
  * @return string 读取到的字符串值
  *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 设计意图见 docs/design/DESIGN_INTENT.md
  */
 function loadEnvVar($key, $default = '') {
     // 优先读取进程环境变量
@@ -107,7 +106,7 @@ error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
 /**
  * 允许上传的文件扩展名白名单
  *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 设计意图见 docs/design/DESIGN_INTENT.md
  */
 define('ALLOWED_FILE_EXTENSIONS', [
     // 图片
@@ -134,7 +133,7 @@ define('ALLOWED_FILE_EXTENSIONS', [
 /**
  * 允许上传的 MIME 类型白名单
  *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 设计意图见 docs/design/DESIGN_INTENT.md
  */
 define('ALLOWED_FILE_MIMES', [
     // 图片
@@ -171,7 +170,7 @@ define('ALLOWED_FILE_MIMES', [
  * @param string $password 用户提交的明文密码
  * @return bool 密码匹配返回 true，否则 false
  *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 设计意图见 docs/design/DESIGN_INTENT.md
  */
 function verifyLargeFilePassword($password) {
     if (!is_string($password)) return false;

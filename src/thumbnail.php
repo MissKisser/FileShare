@@ -1,10 +1,6 @@
 <?php
 /**
- * 缩略图生成
- *
- * 作者：FileShare Contributors
- *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 缩略图生成。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 

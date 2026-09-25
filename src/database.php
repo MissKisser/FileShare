@@ -1,11 +1,6 @@
 <?php
 /**
- * SQLite 数据库管理
- *
- * 作者：Hackerdallas
- *
- * 提供 SQLite 连接单例、建表初始化、JSON 数据迁移。
- * 设计意图见 docs/DESIGN_INTENT.md
+ * SQLite 数据库管理。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -62,6 +57,8 @@ function initDB($db) {
             download_count  INTEGER DEFAULT 0,
             ip              TEXT    NOT NULL,
             user_agent      TEXT,
+            time            INTEGER DEFAULT 0,
+            expire          INTEGER DEFAULT 0,
             duration        INTEGER NOT NULL DEFAULT 600,
             owner_token_hash TEXT
         );

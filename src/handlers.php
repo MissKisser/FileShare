@@ -1,11 +1,6 @@
 <?php
 /**
- * 请求处理器
- * 作者：Hackerdallas
- *
- * 重构为 SQLite 数据库操作，新增分享、预览、批量操作等路由
- *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 请求处理器。
  */
 if (!defined('ACCESS_ALLOWED')) exit('Access Denied');
 
@@ -108,7 +103,7 @@ function validateCSRF() {
 /**
  * 主请求路由分发
  *
- * 设计意图见 docs/DESIGN_INTENT.md
+ * 设计意图见 docs/design/DESIGN_INTENT.md
  */
 function handleRequest() {
     // ===== 缩略图懒生成端点 =====

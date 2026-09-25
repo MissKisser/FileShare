@@ -1,16 +1,5 @@
 /**
- * FileShare 分片上传控制器
- * 作者：FileShare Contributors
- *
- * 用法：
- *   const uploader = new FileShareChunkedUploader({
- *       chunkSize: 5 * 1024 * 1024,
- *       concurrency: 3,
- *       onProgress: (pct) => {},
- *       onSuccess: (item) => {},
- *       onError: (msg) => {},
- *   });
- *   uploader.upload(file, { duration: 3600, largeFilePassword: 'xxx' });
+ * 分片上传控制器。
  */
 (function (global) {
     'use strict';
@@ -97,6 +86,9 @@
                 var fd = new FormData();
                 fd.append('session_id', actualSessionId);
                 fd.append('chunk_index', chunkIdx);
+                if (window.FILESHARE_CSRF) {
+                    fd.append('csrf_token', window.FILESHARE_CSRF);
+                }
                 fd.append('file', blob, file.name + '.part' + chunkIdx);
 
                 return new Promise(function (resolve, reject) {
@@ -190,10 +182,14 @@
     };
 
     FileShareChunkedUploader.prototype._apiCall = function (endpoint, body) {
+        var payload = Object.assign({}, body);
+        if (window.FILESHARE_CSRF) {
+            payload.csrf_token = window.FILESHARE_CSRF;
+        }
         return fetch('?api=' + endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         }).then(function (resp) {
             return resp.json().then(function (data) {
                 if (!resp.ok || data.error) {

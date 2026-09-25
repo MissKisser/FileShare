@@ -57,3 +57,7 @@ phpinfo.php
 # Composer 依赖与构建产物
 /vendor/
 /composer.lock
+
+# 忽略非豁免文档不入库
+/docs/*
+
